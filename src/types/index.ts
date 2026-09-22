@@ -50,6 +50,22 @@ export interface LapRecordModel {
   clientIntentId?: string;
   invalidatedAt?: number;
   invalidationReason?: string;
+  invalidatedBy?: string;
+  restoredAt?: number;
+  restoreReason?: string;
+  restoredBy?: string;
+}
+
+export interface RaceAuditRecord {
+  id: string;
+  sessionId: string;
+  teamId?: string;
+  type: string;
+  serverTimestamp: number;
+  payload: Record<string, unknown>;
+  actor: string;
+  invalidated?: boolean;
+  invalidationReason?: string;
 }
 
 export interface LeaderboardEntry {

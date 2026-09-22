@@ -144,7 +144,14 @@ export const App: React.FC = () => {
           />
         );
       case '/broadcast':
-        return <BroadcastView health={health} />;
+        return (
+          <BroadcastView
+            health={health}
+            event={event}
+            teams={teams}
+            sessions={sessions}
+          />
+        );
       case '/manual':
         return <ManualView />;
       case '/admin':

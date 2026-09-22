@@ -15,13 +15,16 @@ import {
   Wifi,
   ExternalLink,
   Square,
-  Flag
+  Flag,
+  Zap
 } from 'lucide-react';
 import { EventModel, TeamModel, SessionModel, SystemHealth, PresenceOverview } from '../types';
 import { EventConfigModal } from '../components/EventConfigModal';
 import { TeamFormModal } from '../components/TeamFormModal';
 import { SessionFormModal } from '../components/SessionFormModal';
+import { RaceAuditAndLapsPanel } from '../components/RaceAuditAndLapsPanel';
 import { usePresence } from '../hooks/usePresence';
+import { useRealtimeTiming } from '../hooks/useRealtimeTiming';
 
 interface Props {
   health?: SystemHealth | null;
@@ -55,6 +58,19 @@ export const RaceControlView: React.FC<Props> = ({
   // Estado de presencia en tiempo real
   const [presence, setPresence] = useState<PresenceOverview | null>(null);
   const [isRefreshingPresence, setIsRefreshingPresence] = useState(false);
+
+  // Monitor de cronometraje en tiempo real (M4)
+  const activeSession = sessions.find((s) => s.status === 'RUNNING') || sessions[0];
+  const { timing, isLive: timingLive, revision: timingRevision, refresh: refreshTiming } = useRealtimeTiming(activeSession?.id);
+
+  const formatLapTime = (ms?: number) => {
+    if (!ms || ms <= 0) return '--:--.---';
+    const totalSecs = ms / 1000;
+    const minutes = Math.floor(totalSecs / 60);
+    const seconds = Math.floor(totalSecs % 60);
+    const millis = Math.floor(ms % 1000);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
+  };
 
   const fetchPresence = useCallback(async () => {
     try {
@@ -233,7 +249,7 @@ export const RaceControlView: React.FC<Props> = ({
                 Dirección de Carrera / Race Control
               </h1>
               <span className="px-2 py-0.5 text-[11px] font-mono font-semibold bg-emerald-950/70 text-emerald-300 rounded border border-emerald-700/60">
-                M3 CRONOMETRAJE
+                M5 CORRECCIONES Y AUDITORÍA
               </span>
             </div>
             <p className="text-xs text-gray-400 font-mono mt-0.5">
@@ -272,6 +288,165 @@ export const RaceControlView: React.FC<Props> = ({
             ✕
           </button>
         </div>
+      )}
+
+      {/* Monitor de Cronometraje y Telemetría en Vivo (M4) */}
+      {activeSession && (
+        <div className="bg-[#131720] border border-gray-800 rounded-xl p-5 space-y-4 shadow-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-800 pb-3 gap-2">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-1.5 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-400">
+                <Zap className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+                    Monitor en Vivo: {activeSession.name}
+                  </h3>
+                  <span
+                    className={`px-2 py-0.5 text-[10px] font-mono rounded font-bold ${
+                      activeSession.status === 'RUNNING'
+                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-600 flex items-center space-x-1'
+                        : activeSession.status === 'TIMING_CLOSED'
+                        ? 'bg-purple-950 text-purple-300 border border-purple-800'
+                        : 'bg-amber-950 text-amber-300 border border-amber-800'
+                    }`}
+                  >
+                    {activeSession.status === 'RUNNING' && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1" />
+                    )}
+                    <span>{activeSession.status}</span>
+                  </span>
+                </div>
+                <div className="text-[11px] font-mono text-gray-400 flex items-center space-x-2 mt-0.5">
+                  <span className={timingLive ? 'text-emerald-400' : 'text-gray-500'}>
+                    {timingLive ? '● Stream SSE Conectado' : '○ Sincronizando'}
+                  </span>
+                  <span>·</span>
+                  <span>Rev. #{timingRevision}</span>
+                  <span>·</span>
+                  <span>{timing?.totalLapsRecorded || 0} vueltas registradas</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 text-xs font-mono">
+              <button
+                onClick={() => onNavigate?.('/display')}
+                className="px-2.5 py-1.5 bg-[#0a0c10] hover:bg-gray-800 border border-gray-700 text-gray-300 rounded flex items-center space-x-1 cursor-pointer transition-colors"
+              >
+                <ExternalLink className="w-3 h-3 text-cyan-400" />
+                <span>Ver Pantalla 16:9</span>
+              </button>
+              <button
+                onClick={() => onNavigate?.('/broadcast')}
+                className="px-2.5 py-1.5 bg-[#0a0c10] hover:bg-gray-800 border border-gray-700 text-gray-300 rounded flex items-center space-x-1 cursor-pointer transition-colors"
+              >
+                <ExternalLink className="w-3 h-3 text-amber-400" />
+                <span>Ver Broadcast</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Tabla de clasificación en vivo */}
+          {timing && timing.leaderboard && timing.leaderboard.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono">
+                <thead>
+                  <tr className="border-b border-gray-800 text-gray-500 uppercase text-[10px]">
+                    <th className="py-2 px-2 text-center w-12">Pos</th>
+                    <th className="py-2 px-3">Escudería</th>
+                    <th className="py-2 px-3">Kart</th>
+                    <th className="py-2 px-2 text-center">Vueltas</th>
+                    <th className="py-2 px-3 text-right">Última</th>
+                    <th className="py-2 px-3 text-right">Mejor</th>
+                    <th className="py-2 px-3 text-right">Diferencia</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/60 font-tabular">
+                  {timing.leaderboard.map((item) => {
+                    const teamInfo = teams.find((t) => t.id === item.teamId);
+                    return (
+                      <tr
+                        key={item.teamId}
+                        className={`hover:bg-gray-800/40 transition-colors ${
+                          item.position === 1 ? 'bg-amber-950/20' : ''
+                        }`}
+                      >
+                        <td className="py-2 px-2 text-center font-bold">
+                          <span
+                            className={`inline-block w-6 text-center py-0.5 rounded ${
+                              item.position === 1
+                                ? 'bg-amber-400 text-black font-black'
+                                : item.position === 2
+                                ? 'bg-gray-300 text-black font-black'
+                                : item.position === 3
+                                ? 'bg-amber-700 text-white font-black'
+                                : 'text-gray-400'
+                            }`}
+                          >
+                            {item.position}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="flex items-center space-x-2">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: teamInfo?.color || '#3b82f6' }}
+                            />
+                            <span className="font-bold text-gray-200">
+                              {teamInfo?.name || item.teamId}
+                            </span>
+                            {item.isFastestLap && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800">
+                                VR
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-gray-400">
+                          {teamInfo?.kartName || 'Kart'}
+                        </td>
+                        <td className="py-2 px-2 text-center font-bold text-white">
+                          {item.lapCount}
+                        </td>
+                        <td className="py-2 px-3 text-right text-cyan-400">
+                          {formatLapTime(item.lastLapMs)}
+                        </td>
+                        <td className="py-2 px-3 text-right text-purple-400 font-bold">
+                          {formatLapTime(item.bestLapMs)}
+                        </td>
+                        <td className="py-2 px-3 text-right text-gray-400">
+                          {item.gapMs !== undefined && item.gapMs > 0
+                            ? `+${(item.gapMs / 1000).toFixed(3)}s`
+                            : item.position === 1
+                            ? 'LÍDER'
+                            : '--'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-6 text-center text-xs font-mono text-gray-500 bg-[#0a0c10] rounded-lg">
+              No hay tiempos registrados para la sesión actual todavía.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Panel de Auditoría y Corrección de Vueltas (M5) */}
+      {activeSession && (
+        <RaceAuditAndLapsPanel
+          sessionId={activeSession.id}
+          sessionName={activeSession.name}
+          teams={teams}
+          onLapInvalidatedOrRestored={() => {
+            refreshTiming();
+          }}
+        />
       )}
 
       {/* Panel de Presencia y Dispositivos Conectados en Tiempo Real (M2) */}

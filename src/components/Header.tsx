@@ -47,7 +47,7 @@ export const Header: React.FC<Props> = ({
                   Pit Wall & Race Control
                 </span>
                 <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-emerald-950 text-emerald-300 rounded border border-emerald-700/60">
-                  M3
+                  M5 AUDITORÍA
                 </span>
               </div>
               <p className="text-[11px] text-gray-400 font-mono tracking-tight hidden sm:block">

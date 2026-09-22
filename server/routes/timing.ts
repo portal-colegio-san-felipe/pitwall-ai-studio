@@ -438,3 +438,184 @@ timingRouter.get('/sessions/:sessionId/laps', async (req: Request, res: Response
     return res.status(500).json({ ok: false, error: { code: 'SERVER_ERROR', message: 'Error al obtener historial' } });
   }
 });
+
+/**
+ * Invalidar una vuelta registrada (M5 - Correcciones y Auditoría)
+ * POST /sessions/:sessionId/laps/:lapId/invalidate
+ * Body: { reason: string, actor?: string }
+ */
+timingRouter.post('/sessions/:sessionId/laps/:lapId/invalidate', async (req: Request, res: Response) => {
+  const { sessionId, lapId } = req.params;
+  const { reason, actor } = req.body;
+
+  if (!reason || typeof reason !== 'string' || !reason.trim()) {
+    return res.status(400).json({
+      ok: false,
+      error: { code: 'REASON_REQUIRED', message: 'El motivo de la invalidación es obligatorio para auditoría' }
+    });
+  }
+
+  const store = getPersistenceStore();
+
+  try {
+    const laps = await store.getLaps(sessionId);
+    const lap = laps.find((l) => l.id === lapId);
+    if (!lap) {
+      return res.status(404).json({
+        ok: false,
+        error: { code: 'LAP_NOT_FOUND', message: 'Vuelta no encontrada en esta sesión' }
+      });
+    }
+
+    if (!lap.isValid) {
+      return res.status(400).json({
+        ok: false,
+        error: { code: 'ALREADY_INVALIDATED', message: 'La vuelta ya fue invalidada previamente' }
+      });
+    }
+
+    const auditActor = (typeof actor === 'string' && actor.trim()) ? actor.trim() : 'Director de Carrera';
+    const trimmedReason = reason.trim();
+    const serverNow = Date.now();
+
+    lap.isValid = false;
+    lap.invalidatedAt = serverNow;
+    lap.invalidationReason = trimmedReason;
+    lap.invalidatedBy = auditActor;
+
+    await store.updateLap(lap);
+
+    // Registrar evento inmutable de auditoría
+    await store.appendRaceEvent({
+      id: crypto.randomUUID(),
+      sessionId,
+      teamId: lap.teamId,
+      type: 'LAP_INVALIDATED',
+      serverTimestamp: serverNow,
+      payload: {
+        lapId: lap.id,
+        lapNumber: lap.lapNumber,
+        lapTimeMs: lap.lapTimeMs,
+        reason: trimmedReason,
+        invalidatedBy: auditActor
+      },
+      actor: auditActor
+    });
+
+    // Recalcular proyección de tiempos y propagar en tiempo real a todas las vistas conectadas
+    const updatedTiming = await computeTimingOverview(sessionId);
+    if (updatedTiming) {
+      realtimeBus.publishTimingUpdate(sessionId, updatedTiming);
+    }
+
+    return res.json({
+      ok: true,
+      message: 'Vuelta invalidada correctamente y recalculadas todas las proyecciones',
+      lap,
+      timing: updatedTiming
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error desconocido';
+    return res.status(500).json({ ok: false, error: { code: 'SERVER_ERROR', message: msg } });
+  }
+});
+
+/**
+ * Restaurar una vuelta invalidada previamente (M5 - Correcciones y Auditoría)
+ * POST /sessions/:sessionId/laps/:lapId/restore
+ * Body: { reason: string, actor?: string }
+ */
+timingRouter.post('/sessions/:sessionId/laps/:lapId/restore', async (req: Request, res: Response) => {
+  const { sessionId, lapId } = req.params;
+  const { reason, actor } = req.body;
+
+  if (!reason || typeof reason !== 'string' || !reason.trim()) {
+    return res.status(400).json({
+      ok: false,
+      error: { code: 'REASON_REQUIRED', message: 'El motivo de la restauración es obligatorio para auditoría' }
+    });
+  }
+
+  const store = getPersistenceStore();
+
+  try {
+    const laps = await store.getLaps(sessionId);
+    const lap = laps.find((l) => l.id === lapId);
+    if (!lap) {
+      return res.status(404).json({
+        ok: false,
+        error: { code: 'LAP_NOT_FOUND', message: 'Vuelta no encontrada en esta sesión' }
+      });
+    }
+
+    if (lap.isValid) {
+      return res.status(400).json({
+        ok: false,
+        error: { code: 'ALREADY_VALID', message: 'La vuelta ya se encuentra activa y válida' }
+      });
+    }
+
+    const auditActor = (typeof actor === 'string' && actor.trim()) ? actor.trim() : 'Director de Carrera';
+    const trimmedReason = reason.trim();
+    const serverNow = Date.now();
+
+    lap.isValid = true;
+    lap.restoredAt = serverNow;
+    lap.restoreReason = trimmedReason;
+    lap.restoredBy = auditActor;
+
+    await store.updateLap(lap);
+
+    // Registrar evento inmutable de auditoría
+    await store.appendRaceEvent({
+      id: crypto.randomUUID(),
+      sessionId,
+      teamId: lap.teamId,
+      type: 'LAP_RESTORED',
+      serverTimestamp: serverNow,
+      payload: {
+        lapId: lap.id,
+        lapNumber: lap.lapNumber,
+        lapTimeMs: lap.lapTimeMs,
+        reason: trimmedReason,
+        restoredBy: auditActor
+      },
+      actor: auditActor
+    });
+
+    // Recalcular proyección de tiempos y propagar en tiempo real a todas las vistas conectadas
+    const updatedTiming = await computeTimingOverview(sessionId);
+    if (updatedTiming) {
+      realtimeBus.publishTimingUpdate(sessionId, updatedTiming);
+    }
+
+    return res.json({
+      ok: true,
+      message: 'Vuelta restaurada correctamente y recalculadas todas las proyecciones',
+      lap,
+      timing: updatedTiming
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error desconocido';
+    return res.status(500).json({ ok: false, error: { code: 'SERVER_ERROR', message: msg } });
+  }
+});
+
+/**
+ * Obtener registro inmutable de auditoría de la sesión
+ * GET /sessions/:sessionId/audit
+ */
+timingRouter.get('/sessions/:sessionId/audit', async (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const store = getPersistenceStore();
+
+  try {
+    const events = await store.getRaceEvents(sessionId);
+    // Ordenar de más reciente a más antiguo
+    const sorted = [...events].sort((a, b) => b.serverTimestamp - a.serverTimestamp);
+    return res.json({ ok: true, events: sorted });
+  } catch {
+    return res.status(500).json({ ok: false, error: { code: 'SERVER_ERROR', message: 'Error al obtener auditoría' } });
+  }
+});
+

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Wifi, Clock, AlertTriangle, Key, RefreshCw, Smartphone, CheckCircle, ShieldAlert } from 'lucide-react';
-import { TeamModel, EventModel, SessionModel, TimingOverview } from '../types';
+import { TeamModel, EventModel, SessionModel, LapRecordModel } from '../types';
 import { usePresence } from '../hooks/usePresence';
+import { useRealtimeTiming } from '../hooks/useRealtimeTiming';
 
 interface Props {
   initialToken?: string;
@@ -16,13 +17,16 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
   const [loading, setLoading] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Estados de cronometraje (M3)
+  // Estados de cronometraje (M3 / M4)
   const [activeSession, setActiveSession] = useState<SessionModel | null>(null);
   const [lapCount, setLapCount] = useState<number>(0);
   const [lastLapMs, setLastLapMs] = useState<number | undefined>(undefined);
   const [bestLapMs, setBestLapMs] = useState<number | undefined>(undefined);
+  const [position, setPosition] = useState<number | undefined>(undefined);
+  const [gapMs, setGapMs] = useState<number | undefined>(undefined);
   const [isSubmittingLap, setIsSubmittingLap] = useState<boolean>(false);
   const [lapFeedback, setLapFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
+  const [teamLaps, setTeamLaps] = useState<LapRecordModel[]>([]);
 
   // Hook de presencia para el operador de equipo
   const { sessionId, status: presenceStatus, isKicked, kickMessage, reconnect } = usePresence({
@@ -31,6 +35,40 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
     teamName: team?.name,
     enabled: !!team
   });
+
+  // Hook de proyección de tiempos en tiempo real (M4)
+  const { timing, isLive: timingLive, refresh: refreshTiming } = useRealtimeTiming(activeSession?.id);
+
+  // Sincronizar estadísticas cuando llegue actualización en tiempo real
+  useEffect(() => {
+    if (!timing || !team) return;
+    const entry = timing.leaderboard.find((l) => l.teamId === team.id);
+    if (entry) {
+      setLapCount(entry.lapCount);
+      setLastLapMs(entry.lastLapMs);
+      setBestLapMs(entry.bestLapMs);
+      setPosition(entry.position);
+      setGapMs(entry.gapMs);
+    }
+  }, [timing, team?.id]);
+
+  const fetchTeamLaps = useCallback(async () => {
+    if (!activeSession || !team) return;
+    try {
+      const res = await fetch(`/api/sessions/${activeSession.id}/laps`);
+      if (res.ok) {
+        const data = await res.json();
+        const allLaps: LapRecordModel[] = data.laps || [];
+        setTeamLaps(allLaps.filter((l) => l.teamId === team.id));
+      }
+    } catch {
+      // Silently catch network interruption
+    }
+  }, [activeSession, team]);
+
+  useEffect(() => {
+    fetchTeamLaps();
+  }, [fetchTeamLaps, timing]);
 
   const validateToken = useCallback(async (tokenToVerify: string) => {
     if (!tokenToVerify || tokenToVerify.trim().length === 0) {
@@ -77,34 +115,6 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
       validateToken(tokenFromUrl);
     }
   }, [initialToken, validateToken]);
-
-  // Consultar tiempos autoritativos periódicamente
-  useEffect(() => {
-    if (!activeSession || !team) return;
-
-    const fetchTiming = async () => {
-      try {
-        const res = await fetch(`/api/sessions/${activeSession.id}/timing`);
-        if (res.ok) {
-          const data: { ok: boolean; timing: TimingOverview } = await res.json();
-          if (data.ok && data.timing) {
-            const entry = data.timing.leaderboard.find((l) => l.teamId === team.id);
-            if (entry) {
-              setLapCount(entry.lapCount);
-              setLastLapMs(entry.lastLapMs);
-              setBestLapMs(entry.bestLapMs);
-            }
-          }
-        }
-      } catch {
-        // Silencioso en reintentos periódicos
-      }
-    };
-
-    fetchTiming();
-    const interval = setInterval(fetchTiming, 3000);
-    return () => clearInterval(interval);
-  }, [activeSession?.id, team?.id]);
 
   // Manejador del botón autoritativo: REGISTRAR VUELTA (Criterio M3)
   const handleRegisterLap = async () => {
@@ -361,12 +371,21 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
           <Smartphone className="w-3.5 h-3.5 text-cyan-400" />
           <span>Sesión: {sessionId.substring(0, 14)}...</span>
         </div>
-        <button
-          onClick={handleLogout}
-          className="text-gray-500 hover:text-rose-400 transition-colors cursor-pointer"
-        >
-          Cambiar Escudería
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => refreshTiming()}
+            title="Refrescar telemetría"
+            className="text-gray-500 hover:text-cyan-400 transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-3 h-3" />
+          </button>
+          <button
+            onClick={handleLogout}
+            className="text-gray-500 hover:text-rose-400 transition-colors cursor-pointer"
+          >
+            Cambiar Escudería
+          </button>
+        </div>
       </div>
 
       {/* Banner de Reconexión si está Offline */}
@@ -414,22 +433,40 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
         </div>
       )}
 
-      {/* Panel de Tiempos Principales (M3) */}
-      <div className="bg-[#131720] border border-gray-800 rounded-xl p-4 grid grid-cols-3 gap-2 text-center font-mono">
-        <div className="bg-[#0a0c10] border border-gray-800/80 rounded-lg p-2.5">
-          <div className="text-[10px] text-gray-500 uppercase">Vueltas</div>
-          <div className="text-2xl font-black text-white font-tabular mt-1">{lapCount}</div>
-        </div>
-        <div className="bg-[#0a0c10] border border-gray-800/80 rounded-lg p-2.5">
-          <div className="text-[10px] text-gray-500 uppercase">Última</div>
-          <div className="text-xs font-bold text-cyan-400 font-tabular mt-2">
-            {formatLapTime(lastLapMs)}
+      {/* Panel de Tiempos Principales (M3 / M4) */}
+      <div className="bg-[#131720] border border-gray-800 rounded-xl p-3.5 space-y-2">
+        <div className="flex items-center justify-between text-[11px] font-mono text-gray-400 border-b border-gray-800 pb-1.5">
+          <div className="flex items-center space-x-1.5">
+            <span className={`w-2 h-2 rounded-full ${timingLive ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+            <span className="text-gray-300 font-semibold">{timingLive ? 'TELEMETRÍA EN VIVO' : 'SINCRONIZANDO'}</span>
           </div>
+          {gapMs !== undefined && gapMs > 0 && (
+            <span className="text-amber-400">GAP: +{(gapMs / 1000).toFixed(3)}s</span>
+          )}
         </div>
-        <div className="bg-[#0a0c10] border border-gray-800/80 rounded-lg p-2.5">
-          <div className="text-[10px] text-gray-500 uppercase">Mejor</div>
-          <div className="text-xs font-bold text-purple-400 font-tabular mt-2">
-            {formatLapTime(bestLapMs)}
+
+        <div className="grid grid-cols-4 gap-2 text-center font-mono">
+          <div className="bg-[#0a0c10] border border-gray-800/80 rounded-lg p-2 flex flex-col justify-center">
+            <div className="text-[9px] text-gray-500 uppercase">Posición</div>
+            <div className="text-xl sm:text-2xl font-black text-amber-400 font-tabular mt-0.5">
+              {position ? `P${position}` : '--'}
+            </div>
+          </div>
+          <div className="bg-[#0a0c10] border border-gray-800/80 rounded-lg p-2 flex flex-col justify-center">
+            <div className="text-[9px] text-gray-500 uppercase">Vueltas</div>
+            <div className="text-xl sm:text-2xl font-black text-white font-tabular mt-0.5">{lapCount}</div>
+          </div>
+          <div className="bg-[#0a0c10] border border-gray-800/80 rounded-lg p-2 flex flex-col justify-center">
+            <div className="text-[9px] text-gray-500 uppercase">Última</div>
+            <div className="text-[11px] sm:text-xs font-bold text-cyan-400 font-tabular mt-1 truncate">
+              {formatLapTime(lastLapMs)}
+            </div>
+          </div>
+          <div className="bg-[#0a0c10] border border-gray-800/80 rounded-lg p-2 flex flex-col justify-center">
+            <div className="text-[9px] text-gray-500 uppercase">Mejor</div>
+            <div className="text-[11px] sm:text-xs font-bold text-purple-400 font-tabular mt-1 truncate">
+              {formatLapTime(bestLapMs)}
+            </div>
           </div>
         </div>
       </div>
@@ -492,6 +529,58 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
             <div className="text-gray-500 text-[10px]">Relevo: {lapCount} vueltas</div>
           </div>
         </div>
+      </div>
+
+      {/* Historial de Vueltas de la Escudería (Auditoría M5) */}
+      <div className="bg-[#131720] border border-gray-800 rounded-xl p-4 space-y-2 text-xs">
+        <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+          <div className="flex items-center space-x-2 text-gray-300 font-bold uppercase tracking-wider text-[11px]">
+            <Clock className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Registro de Vueltas ({teamLaps.length})</span>
+          </div>
+          <span className="text-[10px] font-mono text-gray-500">M5 Auditoría</span>
+        </div>
+
+        {teamLaps.length === 0 ? (
+          <div className="bg-[#0a0c10] border border-gray-800/80 rounded p-3 text-center text-gray-500 font-mono text-[11px]">
+            No se han registrado vueltas para esta escudería en la manga actual.
+          </div>
+        ) : (
+          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            {[...teamLaps].reverse().map((l) => (
+              <div
+                key={l.id}
+                className={`p-2 rounded-lg border font-mono text-[11px] flex items-center justify-between ${
+                  l.isValid
+                    ? 'bg-[#0a0c10] border-gray-800 text-gray-300'
+                    : 'bg-rose-950/20 border-rose-800/60 text-rose-300'
+                }`}
+              >
+                <div className="space-y-0.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-bold text-white">V#{l.lapNumber}</span>
+                    <span className={l.isValid ? 'text-cyan-400 font-bold' : 'line-through text-gray-500'}>
+                      {formatLapTime(l.lapTimeMs)}
+                    </span>
+                    {!l.isValid && (
+                      <span className="px-1.5 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800 text-[9px] font-bold">
+                        INVALIDADA
+                      </span>
+                    )}
+                  </div>
+                  {!l.isValid && (
+                    <div className="text-[10px] text-rose-400 font-sans">
+                      Motivo: "{l.invalidationReason}" {l.invalidatedBy ? `(${l.invalidatedBy})` : ''}
+                    </div>
+                  )}
+                </div>
+                <div className="text-[10px] text-gray-500">
+                  {new Date(l.serverTimestamp).toLocaleTimeString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Avisos de Dirección de Carrera */}

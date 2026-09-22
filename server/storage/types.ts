@@ -55,6 +55,10 @@ export interface LapRecord {
   clientIntentId?: string;
   invalidatedAt?: number;
   invalidationReason?: string;
+  invalidatedBy?: string;
+  restoredAt?: number;
+  restoreReason?: string;
+  restoredBy?: string;
 }
 
 export interface RaceEventData {

@@ -99,6 +99,20 @@ class RealtimeEventBus extends EventEmitter {
     this.broadcast(event);
   }
 
+  public subscribe(listener: (eventType: string, event: RealtimeTimingEvent) => void) {
+    const onTiming = (e: RealtimeTimingEvent) => listener('timing_update', e);
+    const onSession = (e: RealtimeTimingEvent) => listener('session_update', e);
+    const onEvent = (e: RealtimeTimingEvent) => listener('event_update', e);
+    this.on('timing_update', onTiming);
+    this.on('session_update', onSession);
+    this.on('event_update', onEvent);
+    return () => {
+      this.off('timing_update', onTiming);
+      this.off('session_update', onSession);
+      this.off('event_update', onEvent);
+    };
+  }
+
   private startHeartbeat() {
     if (this.heartbeatInterval) return;
     this.heartbeatInterval = setInterval(() => {

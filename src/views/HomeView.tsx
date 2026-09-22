@@ -87,10 +87,10 @@ export const HomeView: React.FC<Props> = ({
         <div className="space-y-2">
           <div className="flex items-center space-x-2">
             <span className="px-2 py-0.5 text-xs font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-700/60 rounded">
-              SISTEMA OPERATIVO · M2
+              SISTEMA OPERATIVO · M5
             </span>
             <span className="text-xs text-gray-400 font-mono">
-              Acceso Único por Token & Presencia
+              Correcciones, Auditoría & Cronometraje Autoritativo
             </span>
           </div>
 

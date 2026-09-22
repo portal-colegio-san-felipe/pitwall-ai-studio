@@ -69,29 +69,6 @@ export const DisplayView: React.FC<Props> = ({
     };
   }, [onFullscreenChange]);
 
-  // Consultar tiempos de la sesión activa
-  useEffect(() => {
-    if (!activeSession) return;
-
-    const fetchTiming = async () => {
-      try {
-        const res = await fetch(`/api/sessions/${activeSession.id}/timing`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ok) {
-            setTiming(data.timing);
-          }
-        }
-      } catch {
-        // En espera de primera carga
-      }
-    };
-
-    fetchTiming();
-    const interval = setInterval(fetchTiming, 2000);
-    return () => clearInterval(interval);
-  }, [activeSession?.id]);
-
   // Formatear milisegundos a m:ss.sss
   const formatLapTime = (ms?: number) => {
     if (!ms || ms <= 0) return '--:--.---';
@@ -139,7 +116,10 @@ export const DisplayView: React.FC<Props> = ({
           {/* Lado Derecho: Estado de Carrera + Botón Pantalla Completa */}
           <div className="flex items-center space-x-4">
             <div className="text-right font-mono">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider">ESTADO DE CARRERA</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center justify-end space-x-1">
+                <span>ESTADO DE CARRERA</span>
+                {isLive && <span className="text-emerald-400 font-bold">· EN VIVO</span>}
+              </div>
               <div
                 className={`text-sm sm:text-base font-bold uppercase tracking-wider ${
                   activeSession?.status === 'RUNNING'
