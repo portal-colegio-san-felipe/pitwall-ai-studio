@@ -1,0 +1,6 @@
+{
+  "name": "Pit Wall / Race Control",
+  "description": "Sistema escolar de cronometraje, Pit Wall y Race Control para carreras de karts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
