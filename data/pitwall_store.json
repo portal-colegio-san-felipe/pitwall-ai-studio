@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "event": {
+    "id": "event-d35c5e8d-d7cb-4a27-a4ab-c279ce8385bd",
+    "name": "Test Close Event",
+    "edition": "1",
+    "configuredBy": "Director de Carrera",
+    "createdAt": "2026-09-23T23:07:31.430Z",
+    "updatedAt": "2026-09-23T23:07:31.430Z"
+  },
+  "teams": [
+    {
+      "id": "team-fe1e6133-1212-445d-8cad-460871902a0a",
+      "eventId": "event-d35c5e8d-d7cb-4a27-a4ab-c279ce8385bd",
+      "name": "Team Red",
+      "shortName": "TEA",
+      "color": "#ff0000",
+      "token": "token-a04f92931baaf754",
+      "createdAt": "2026-09-23T23:07:31.447Z",
+      "updatedAt": "2026-09-23T23:07:31.447Z"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "session-bbf054f8-7dda-4564-8afe-07479d2e34e8",
+      "eventId": "event-d35c5e8d-d7cb-4a27-a4ab-c279ce8385bd",
+      "name": "Manga 1 Carrera",
+      "type": "race",
+      "participatingTeamIds": [
+        "team-fe1e6133-1212-445d-8cad-460871902a0a"
+      ],
+      "status": "RUNNING",
+      "createdAt": "2026-09-23T23:07:31.452Z",
+      "updatedAt": "2026-09-23T23:11:50.018Z",
+      "startedAt": 1790204851457
+    }
+  ],
+  "laps": [
+    {
+      "id": "e0108ecc-9748-4ba4-a2e7-2b53eae73d97",
+      "sessionId": "session-bbf054f8-7dda-4564-8afe-07479d2e34e8",
+      "teamId": "team-fe1e6133-1212-445d-8cad-460871902a0a",
+      "lapNumber": 1,
+      "serverTimestamp": 1790204851465,
+      "lapTimeMs": 1000,
+      "isValid": true,
+      "recordedBy": "token:token-a0"
+    }
+  ],
+  "raceEvents": [
+    {
+      "id": "e885ef07-f2cf-4622-878d-8c7e681d979f",
+      "sessionId": "session-bbf054f8-7dda-4564-8afe-07479d2e34e8",
+      "type": "SESSION_STARTED",
+      "serverTimestamp": 1790204851458,
+      "payload": {
+        "startedAt": 1790204851457
+      },
+      "actor": "race-control"
+    },
+    {
+      "id": "6927e3dc-acc3-44d7-b3bd-3b9dcdd0a4b9",
+      "sessionId": "session-bbf054f8-7dda-4564-8afe-07479d2e34e8",
+      "teamId": "team-fe1e6133-1212-445d-8cad-460871902a0a",
+      "type": "LAP_REGISTERED",
+      "serverTimestamp": 1790204851465,
+      "payload": {
+        "lapId": "e0108ecc-9748-4ba4-a2e7-2b53eae73d97",
+        "lapNumber": 1,
+        "lapTimeMs": 1000,
+        "recordedBy": "token:token-a0"
+      },
+      "actor": "token:token-a0"
+    },
+    {
+      "id": "18e62d45-4079-44d7-8c20-afe8adaf775e",
+      "sessionId": "session-bbf054f8-7dda-4564-8afe-07479d2e34e8",
+      "type": "SESSION_TIMING_CLOSED",
+      "serverTimestamp": 1790204851476,
+      "payload": {
+        "closedAt": 1790204851476
+      },
+      "actor": "race-control"
+    },
+    {
+      "id": "1665bfe0-6159-4ca5-9627-787a6d826404",
+      "sessionId": "session-bbf054f8-7dda-4564-8afe-07479d2e34e8",
+      "type": "SESSION_STARTED",
+      "serverTimestamp": 1790205110002,
+      "payload": {
+        "startedAt": 1790204851457
+      },
+      "actor": "race-control"
+    },
+    {
+      "id": "f3739b2a-43f1-456a-8ac5-5d7f7a69b01a",
+      "sessionId": "session-bbf054f8-7dda-4564-8afe-07479d2e34e8",
+      "type": "SESSION_TIMING_CLOSED",
+      "serverTimestamp": 1790205110009,
+      "payload": {
+        "closedAt": 1790205110009
+      },
+      "actor": "race-control"
+    },
+    {
+      "id": "69e36861-7ea5-41b5-aec2-3f1882b7d5a3",
+      "sessionId": "session-bbf054f8-7dda-4564-8afe-07479d2e34e8",
+      "type": "SESSION_REOPENED",
+      "serverTimestamp": 1790205110019,
+      "payload": {
+        "reopenedAt": 1790205110019
+      },
+      "actor": "race-control"
+    }
+  ],
+  "updatedAt": "2026-09-23T23:11:50.020Z"
+}

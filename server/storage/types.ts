@@ -39,6 +39,7 @@ export interface SessionData {
   participatingTeamIds: string[];
   status: 'SCHEDULED' | 'RUNNING' | 'TIMING_CLOSED' | 'OFFICIAL';
   startedAt?: number;
+  closedAt?: number;
   createdAt: string;
   updatedAt: string;
 }

@@ -3,6 +3,7 @@ import { Trophy, Maximize, Minimize, Flag, Clock, Zap } from 'lucide-react';
 import { SystemHealth, EventModel, TeamModel, SessionModel } from '../types';
 import { usePresence } from '../hooks/usePresence';
 import { useRealtimeTiming } from '../hooks/useRealtimeTiming';
+import { SessionTimerBadge } from '../components/SessionTimerBadge';
 
 interface Props {
   health: SystemHealth | null;
@@ -112,6 +113,14 @@ export const DisplayView: React.FC<Props> = ({
               )}
             </div>
           </div>
+
+          {/* Centro / Timer para Espectadores: TIEMPO 18:42.6 */}
+          <SessionTimerBadge
+            startedAt={activeSession?.startedAt || timing?.startedAt}
+            status={activeSession?.status}
+            closedAt={activeSession?.closedAt || timing?.closedAt}
+            variant="display"
+          />
 
           {/* Lado Derecho: Estado de Carrera + Botón Pantalla Completa */}
           <div className="flex items-center space-x-4">

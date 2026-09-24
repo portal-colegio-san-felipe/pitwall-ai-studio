@@ -36,7 +36,7 @@ eventsRouter.get('/event', async (_req: Request, res: Response) => {
 
 // POST /api/event - Crear o actualizar el evento principal
 eventsRouter.post('/event', async (req: Request, res: Response) => {
-  const { name, edition, configuredBy } = req.body;
+  const { name, edition, configuredBy, isNewEvent } = req.body;
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({
@@ -51,12 +51,15 @@ eventsRouter.post('/event', async (req: Request, res: Response) => {
   const store = getPersistenceStore();
   const existing = await store.getEvent();
 
+  const isCreatingFresh = Boolean(isNewEvent || !existing);
+  const targetId = isCreatingFresh ? `event-${crypto.randomUUID()}` : (existing ? existing.id : `event-${crypto.randomUUID()}`);
+
   const event: EventData = {
-    id: existing?.id || `event-${crypto.randomUUID()}`,
+    id: targetId,
     name: name.trim(),
     edition: edition ? String(edition).trim() : '1',
     configuredBy: configuredBy ? String(configuredBy).trim() : 'Director de Carrera',
-    createdAt: existing?.createdAt || new Date().toISOString(),
+    createdAt: isCreatingFresh ? new Date().toISOString() : (existing?.createdAt || new Date().toISOString()),
     updatedAt: new Date().toISOString()
   };
 
@@ -67,9 +70,9 @@ eventsRouter.post('/event', async (req: Request, res: Response) => {
     store.getSessions(event.id)
   ]);
 
-  return res.status(existing ? 200 : 201).json({
+  return res.status(isCreatingFresh ? 201 : 200).json({
     ok: true,
-    message: existing ? 'Evento actualizado correctamente.' : 'Evento creado exitosamente.',
+    message: isCreatingFresh ? 'Nuevo Evento creado exitosamente.' : 'Evento actualizado correctamente.',
     event,
     teams,
     sessions

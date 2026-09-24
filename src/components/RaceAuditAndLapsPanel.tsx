@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { LapRecordModel, TeamModel, RaceAuditRecord } from '../types';
 import { LapCorrectionModal } from './LapCorrectionModal';
+import { ManualLapModal } from './ManualLapModal';
+import { PlusCircle } from 'lucide-react';
 
 interface Props {
   sessionId: string;
@@ -31,6 +33,7 @@ export const RaceAuditAndLapsPanel: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [selectedTeamFilter, setSelectedTeamFilter] = useState<string>('all');
   const [selectedLapForInvalidation, setSelectedLapForInvalidation] = useState<LapRecordModel | null>(null);
+  const [showManualLapModal, setShowManualLapModal] = useState(false);
   const [restoringLapId, setRestoringLapId] = useState<string | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
 
@@ -176,6 +179,16 @@ export const RaceAuditAndLapsPanel: React.FC<Props> = ({
               Log Auditoría ({auditEvents.length})
             </button>
           </div>
+
+          <button
+            id="btn-open-manual-lap-panel"
+            onClick={() => setShowManualLapModal(true)}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-black font-bold text-xs rounded-lg flex items-center space-x-1 transition-colors cursor-pointer shadow"
+            title="Registrar manualmente una vuelta a una escudería"
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>+ Contar Vuelta</span>
+          </button>
 
           <button
             onClick={refreshAll}
@@ -348,6 +361,7 @@ export const RaceAuditAndLapsPanel: React.FC<Props> = ({
                 const isInvalidation = evt.type === 'LAP_INVALIDATED';
                 const isRestoration = evt.type === 'LAP_RESTORED';
                 const isLapReg = evt.type === 'LAP_REGISTERED';
+                const isManualLap = evt.type === 'LAP_MANUALLY_RECORDED';
 
                 return (
                   <div
@@ -357,6 +371,8 @@ export const RaceAuditAndLapsPanel: React.FC<Props> = ({
                         ? 'bg-rose-950/20 border-rose-800/60 text-rose-200'
                         : isRestoration
                         ? 'bg-emerald-950/20 border-emerald-800/60 text-emerald-200'
+                        : isManualLap
+                        ? 'bg-amber-950/25 border-amber-800/60 text-amber-200'
                         : isLapReg
                         ? 'bg-[#0a0c10] border-gray-800 text-gray-300'
                         : 'bg-purple-950/20 border-purple-800/60 text-purple-200'
@@ -370,6 +386,8 @@ export const RaceAuditAndLapsPanel: React.FC<Props> = ({
                               ? 'bg-rose-900 text-rose-200'
                               : isRestoration
                               ? 'bg-emerald-900 text-emerald-200'
+                              : isManualLap
+                              ? 'bg-amber-900 text-amber-200'
                               : isLapReg
                               ? 'bg-gray-800 text-cyan-300'
                               : 'bg-purple-900 text-purple-200'
@@ -404,6 +422,16 @@ export const RaceAuditAndLapsPanel: React.FC<Props> = ({
                             <em className="text-emerald-300">"{String(evt.payload.reason || '')}"</em>
                           </span>
                         )}
+                        {isManualLap && (
+                          <span>
+                            Vuelta #{String(evt.payload.lapNumber || '')} registrada manualmente por{' '}
+                            <strong className="text-white">{evt.actor}</strong> (
+                            <span className="font-mono font-bold text-amber-300">
+                              {evt.payload.lapTimeMs ? formatLapTime(Number(evt.payload.lapTimeMs)) : ''}
+                            </span>
+                            ). Motivo: <em className="text-amber-200">"{String(evt.payload.reason || '')}"</em>
+                          </span>
+                        )}
                         {isLapReg && (
                           <span>
                             Vuelta #{String(evt.payload.lapNumber || '')} registrada:{' '}
@@ -413,7 +441,7 @@ export const RaceAuditAndLapsPanel: React.FC<Props> = ({
                             (actor: {evt.actor})
                           </span>
                         )}
-                        {!isInvalidation && !isRestoration && !isLapReg && (
+                        {!isInvalidation && !isRestoration && !isLapReg && !isManualLap && (
                           <span>{JSON.stringify(evt.payload)}</span>
                         )}
                       </div>
@@ -439,6 +467,21 @@ export const RaceAuditAndLapsPanel: React.FC<Props> = ({
           isOpen={!!selectedLapForInvalidation}
           onClose={() => setSelectedLapForInvalidation(null)}
           onConfirmInvalidate={handleInvalidate}
+        />
+      )}
+
+      {/* Modal de Conteo Manual de Vuelta */}
+      {showManualLapModal && (
+        <ManualLapModal
+          sessionId={sessionId}
+          teams={teams}
+          onClose={() => setShowManualLapModal(false)}
+          onSuccess={(msg) => {
+            setActionSuccessMsg(msg);
+            setTimeout(() => setActionSuccessMsg(null), 4000);
+            refreshAll();
+            onLapInvalidatedOrRestored?.();
+          }}
         />
       )}
     </div>

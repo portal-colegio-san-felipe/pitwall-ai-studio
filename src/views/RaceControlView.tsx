@@ -16,13 +16,20 @@ import {
   ExternalLink,
   Square,
   Flag,
-  Zap
+  Zap,
+  PlusCircle,
+  Wrench
 } from 'lucide-react';
 import { EventModel, TeamModel, SessionModel, SystemHealth, PresenceOverview } from '../types';
 import { EventConfigModal } from '../components/EventConfigModal';
 import { TeamFormModal } from '../components/TeamFormModal';
 import { SessionFormModal } from '../components/SessionFormModal';
 import { RaceAuditAndLapsPanel } from '../components/RaceAuditAndLapsPanel';
+import { ManualLapModal } from '../components/ManualLapModal';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { TeamStrategyDetailModal } from '../components/TeamStrategyDetailModal';
+import { StrategyChangeModal } from '../components/StrategyChangeModal';
+import { SessionTimerBadge } from '../components/SessionTimerBadge';
 import { usePresence } from '../hooks/usePresence';
 import { useRealtimeTiming } from '../hooks/useRealtimeTiming';
 
@@ -47,20 +54,41 @@ export const RaceControlView: React.FC<Props> = ({
 
   // Estados para modales
   const [showEventModal, setShowEventModal] = useState(false);
+  const [isCreatingNewEvent, setIsCreatingNewEvent] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [editingTeam, setEditingTeam] = useState<TeamModel | null>(null);
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [editingSession, setEditingSession] = useState<SessionModel | null>(null);
+  const [showManualLapModal, setShowManualLapModal] = useState(false);
+  const [manualLapTeamId, setManualLapTeamId] = useState<string | undefined>(undefined);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [copiedTokenTeamId, setCopiedTokenTeamId] = useState<string | null>(null);
   const [regeneratingTeamId, setRegeneratingTeamId] = useState<string | null>(null);
+
+  // Estados para diálogos de confirmación in-app (evita bloqueos de window.confirm en iframes/sandbox)
+  const [sessionToClose, setSessionToClose] = useState<SessionModel | null>(null);
+  const [sessionToDelete, setSessionToDelete] = useState<SessionModel | null>(null);
+  const [teamToDelete, setTeamToDelete] = useState<TeamModel | null>(null);
+  const [teamToRegenerate, setTeamToRegenerate] = useState<TeamModel | null>(null);
+  const [deviceToKick, setDeviceToKick] = useState<{ sessionId: string; label: string } | null>(null);
+  const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
   // Estado de presencia en tiempo real
   const [presence, setPresence] = useState<PresenceOverview | null>(null);
   const [isRefreshingPresence, setIsRefreshingPresence] = useState(false);
 
+  // Estados para estrategia neutral (M6)
+  const [strategyDetailTeamId, setStrategyDetailTeamId] = useState<string | null>(null);
+  const [strategyChangeType, setStrategyChangeType] = useState<'equipment' | 'personnel' | null>(null);
+  const [strategyChangeTeamId, setStrategyChangeTeamId] = useState<string | null>(null);
+  const [isStrategySubmitting, setIsStrategySubmitting] = useState<boolean>(false);
+
   // Monitor de cronometraje en tiempo real (M4)
-  const activeSession = sessions.find((s) => s.status === 'RUNNING') || sessions[0];
+  // Preserva la sesión seleccionada explícitamente o prioriza la activa en curso (RUNNING)
+  const activeSession = (selectedSessionId ? sessions.find((s) => s.id === selectedSessionId) : null)
+    || sessions.find((s) => s.status === 'RUNNING')
+    || sessions[0];
   const { timing, isLive: timingLive, revision: timingRevision, refresh: refreshTiming } = useRealtimeTiming(activeSession?.id);
 
   const formatLapTime = (ms?: number) => {
@@ -91,26 +119,31 @@ export const RaceControlView: React.FC<Props> = ({
   }, [fetchPresence]);
 
   // Expulsar sesión de dispositivo (Kick)
-  const handleKickSession = async (sessionId: string, deviceLabel: string) => {
-    if (!window.confirm(`¿Desconectar el dispositivo "${deviceLabel}"?`)) {
-      return;
-    }
+  const handleKickSession = (sessionId: string, deviceLabel: string) => {
+    setDeviceToKick({ sessionId, label: deviceLabel });
+  };
 
+  const executeKickSession = async () => {
+    if (!deviceToKick) return;
+    setIsActionLoading(true);
     try {
       const res = await fetch('/api/presence/kick', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId })
+        body: JSON.stringify({ sessionId: deviceToKick.sessionId })
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setActionFeedback('Dispositivo desconectado de la sesión.');
+        setActionFeedback(`Dispositivo "${deviceToKick.label}" desconectado de la sesión.`);
         fetchPresence();
       } else {
         setActionFeedback('No se pudo desconectar el dispositivo.');
       }
     } catch {
       setActionFeedback('Error al solicitar desconexión del dispositivo.');
+    } finally {
+      setIsActionLoading(false);
+      setDeviceToKick(null);
     }
   };
 
@@ -124,23 +157,21 @@ export const RaceControlView: React.FC<Props> = ({
   };
 
   // Regenerar token de escudería si está comprometido
-  const handleRegenerateToken = async (team: TeamModel) => {
-    if (
-      !window.confirm(
-        `¿Regenerar el token de "${team.name}"? Los dispositivos conectados actualmente deberán abrir el nuevo enlace.`
-      )
-    ) {
-      return;
-    }
+  const handleRegenerateToken = (team: TeamModel) => {
+    setTeamToRegenerate(team);
+  };
 
-    setRegeneratingTeamId(team.id);
+  const executeRegenerateToken = async () => {
+    if (!teamToRegenerate) return;
+    setIsActionLoading(true);
+    setRegeneratingTeamId(teamToRegenerate.id);
     try {
-      const res = await fetch(`/api/teams/${team.id}/regenerate-token`, {
+      const res = await fetch(`/api/teams/${teamToRegenerate.id}/regenerate-token`, {
         method: 'POST'
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setActionFeedback(`Nuevo token generado para ${team.name}.`);
+        setActionFeedback(`Nuevo token de seguridad generado para ${teamToRegenerate.name}.`);
         onRefreshData();
       } else {
         setActionFeedback('Error al regenerar token.');
@@ -148,50 +179,69 @@ export const RaceControlView: React.FC<Props> = ({
     } catch {
       setActionFeedback('Error de comunicación al regenerar token.');
     } finally {
+      setIsActionLoading(false);
       setRegeneratingTeamId(null);
+      setTeamToRegenerate(null);
     }
   };
 
   // Manejar borrado de escudería
-  const handleDeleteTeam = async (team: TeamModel) => {
-    if (!window.confirm(`¿Confirmar eliminación de la escudería "${team.name}"?`)) {
-      return;
-    }
+  const handleDeleteTeam = (team: TeamModel) => {
+    setTeamToDelete(team);
+  };
+
+  const executeDeleteTeam = async () => {
+    if (!teamToDelete) return;
+    setIsActionLoading(true);
     try {
-      const res = await fetch(`/api/teams/${team.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/teams/${teamToDelete.id}`, { method: 'DELETE' });
       if (res.ok) {
-        setActionFeedback(`Escudería "${team.name}" eliminada.`);
+        setActionFeedback(`Escudería "${teamToDelete.name}" eliminada.`);
         onRefreshData();
       }
     } catch {
       setActionFeedback('Error al eliminar la escudería.');
+    } finally {
+      setIsActionLoading(false);
+      setTeamToDelete(null);
     }
   };
 
   // Manejar borrado de sesión
-  const handleDeleteSession = async (session: SessionModel) => {
-    if (!window.confirm(`¿Confirmar eliminación de la sesión "${session.name}"?`)) {
-      return;
-    }
+  const handleDeleteSession = (session: SessionModel) => {
+    setSessionToDelete(session);
+  };
+
+  const executeDeleteSession = async () => {
+    if (!sessionToDelete) return;
+    setIsActionLoading(true);
     try {
-      const res = await fetch(`/api/sessions/${session.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/sessions/${sessionToDelete.id}`, { method: 'DELETE' });
       if (res.ok) {
-        setActionFeedback(`Sesión "${session.name}" eliminada.`);
+        setActionFeedback(`Sesión "${sessionToDelete.name}" eliminada.`);
+        if (selectedSessionId === sessionToDelete.id) {
+          setSelectedSessionId(null);
+        }
         onRefreshData();
       }
     } catch {
       setActionFeedback('Error al eliminar la sesión.');
+    } finally {
+      setIsActionLoading(false);
+      setSessionToDelete(null);
     }
   };
 
   // Manejar inicio de sesión / cronometraje (M3)
   const handleStartSession = async (session: SessionModel) => {
+    setSelectedSessionId(session.id);
     try {
       const res = await fetch(`/api/sessions/${session.id}/start`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setActionFeedback(`Manga "${session.name}" iniciada. Cronometraje autoritativo EN VIVO.`);
+        setActionFeedback(`🏁 Manga "${session.name}" iniciada. Cronometraje autoritativo EN VIVO.`);
         onRefreshData();
+        refreshTiming();
       } else {
         setActionFeedback(data.error?.message || 'Error al iniciar la sesión.');
       }
@@ -202,12 +252,14 @@ export const RaceControlView: React.FC<Props> = ({
 
   // Manejar pausa de sesión (M3)
   const handleStopSession = async (session: SessionModel) => {
+    setSelectedSessionId(session.id);
     try {
       const res = await fetch(`/api/sessions/${session.id}/stop`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setActionFeedback(`Manga "${session.name}" pausada.`);
+        setActionFeedback(`⏸ Manga "${session.name}" pausada.`);
         onRefreshData();
+        refreshTiming();
       } else {
         setActionFeedback(data.error?.message || 'Error al pausar la sesión.');
       }
@@ -217,21 +269,132 @@ export const RaceControlView: React.FC<Props> = ({
   };
 
   // Manejar cierre de cronometraje (M3)
-  const handleCloseSession = async (session: SessionModel) => {
-    if (!window.confirm(`¿Confirmar cierre de cronometraje para "${session.name}"? No se registrarán más vueltas.`)) {
-      return;
-    }
+  const handleCloseSession = (session: SessionModel) => {
+    setSessionToClose(session);
+  };
+
+  const executeCloseSession = async () => {
+    if (!sessionToClose) return;
+    setIsActionLoading(true);
     try {
-      const res = await fetch(`/api/sessions/${session.id}/close`, { method: 'POST' });
+      const res = await fetch(`/api/sessions/${sessionToClose.id}/close`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setActionFeedback(`Cronometraje de "${session.name}" CERRADO. Listo para revisión de resultados.`);
+        setSelectedSessionId(sessionToClose.id);
+        setActionFeedback(`🏁 Cronometraje de "${sessionToClose.name}" CERRADO. No se registrarán más vueltas en Pit Wall.`);
         onRefreshData();
+        refreshTiming();
       } else {
         setActionFeedback(data.error?.message || 'Error al cerrar cronometraje.');
       }
     } catch {
       setActionFeedback('Error de comunicación al cerrar cronometraje.');
+    } finally {
+      setIsActionLoading(false);
+      setSessionToClose(null);
+    }
+  };
+
+  // Manejar reanudación de cronometraje si fue cerrada por error
+  const handleReopenSession = async (session: SessionModel) => {
+    setSelectedSessionId(session.id);
+    try {
+      const res = await fetch(`/api/sessions/${session.id}/reopen`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setActionFeedback(`🟢 Cronometraje de "${session.name}" REABIERTO. Estado: RUNNING.`);
+        onRefreshData();
+        refreshTiming();
+      } else {
+        setActionFeedback(data.error?.message || 'Error al reabrir cronometraje.');
+      }
+    } catch {
+      setActionFeedback('Error de comunicación al reabrir cronometraje.');
+    }
+  };
+
+  // Manejadores de Estrategia Neutral para Comisarios (M6)
+  const handleRaceControlPitIn = async (teamId: string) => {
+    if (!activeSession) return;
+    try {
+      const res = await fetch(`/api/sessions/${activeSession.id}/strategy/pit-in`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId, actor: 'Dirección de Carrera' })
+      });
+      if (res.ok) {
+        setActionFeedback('Entrada a boxes (PIT IN) registrada correctamente');
+        await refreshTiming();
+      }
+    } catch {
+      setActionFeedback('Error al registrar entrada a boxes');
+    }
+  };
+
+  const handleRaceControlPitOut = async (teamId: string) => {
+    if (!activeSession) return;
+    try {
+      const res = await fetch(`/api/sessions/${activeSession.id}/strategy/pit-out`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId, actor: 'Dirección de Carrera' })
+      });
+      if (res.ok) {
+        setActionFeedback('Salida de boxes (PIT OUT) registrada correctamente');
+        await refreshTiming();
+      }
+    } catch {
+      setActionFeedback('Error al registrar salida de boxes');
+    }
+  };
+
+  const handleRaceControlEquipmentSubmit = async (newValue: string, reason?: string) => {
+    if (!activeSession || !strategyChangeTeamId) return;
+    setIsStrategySubmitting(true);
+    try {
+      const res = await fetch(`/api/sessions/${activeSession.id}/strategy/equipment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamId: strategyChangeTeamId,
+          equipment: newValue,
+          reason,
+          actor: 'Dirección de Carrera'
+        })
+      });
+      if (res.ok) {
+        setActionFeedback(`Cambio de compuesto a "${newValue}" registrado correctamente`);
+        setStrategyChangeType(null);
+        setStrategyChangeTeamId(null);
+        await refreshTiming();
+      }
+    } finally {
+      setIsStrategySubmitting(false);
+    }
+  };
+
+  const handleRaceControlPersonnelSubmit = async (newValue: string, reason?: string) => {
+    if (!activeSession || !strategyChangeTeamId) return;
+    setIsStrategySubmitting(true);
+    try {
+      const res = await fetch(`/api/sessions/${activeSession.id}/strategy/personnel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamId: strategyChangeTeamId,
+          personnel: newValue,
+          reason,
+          actor: 'Dirección de Carrera'
+        })
+      });
+      if (res.ok) {
+        setActionFeedback(`Relevo de piloto a "${newValue}" registrado correctamente`);
+        setStrategyChangeType(null);
+        setStrategyChangeTeamId(null);
+        await refreshTiming();
+      }
+    } finally {
+      setIsStrategySubmitting(false);
     }
   };
 
@@ -258,7 +421,7 @@ export const RaceControlView: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className="flex items-center space-x-3 text-xs font-mono">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
           <div className="bg-[#0a0c10] border border-gray-800 px-3 py-2 rounded-lg">
             <span className="text-gray-500 text-[10px] block uppercase">Evento Actual</span>
             <span className={`font-bold ${event ? 'text-cyan-400' : 'text-amber-400'}`}>
@@ -267,11 +430,27 @@ export const RaceControlView: React.FC<Props> = ({
           </div>
 
           <button
-            id="btn-open-event-modal"
-            onClick={() => setShowEventModal(true)}
-            className="px-3.5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold transition-colors cursor-pointer flex items-center space-x-1.5 shadow"
+            id="btn-new-event"
+            onClick={() => {
+              setIsCreatingNewEvent(true);
+              setShowEventModal(true);
+            }}
+            className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-colors cursor-pointer flex items-center space-x-1.5 shadow"
+            title="Crear un nuevo evento escolar independiente"
           >
-            <Trophy className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" />
+            <span>Nuevo Evento</span>
+          </button>
+
+          <button
+            id="btn-open-event-modal"
+            onClick={() => {
+              setIsCreatingNewEvent(false);
+              setShowEventModal(true);
+            }}
+            className="px-3.5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold transition-colors cursor-pointer flex items-center space-x-1.5 border border-gray-700 shadow"
+          >
+            <Trophy className="w-3.5 h-3.5 text-cyan-400" />
             <span>{event ? 'Editar Evento' : 'Configurar Evento'}</span>
           </button>
         </div>
@@ -293,7 +472,45 @@ export const RaceControlView: React.FC<Props> = ({
       {/* Monitor de Cronometraje y Telemetría en Vivo (M4) */}
       {activeSession && (
         <div className="bg-[#131720] border border-gray-800 rounded-xl p-5 space-y-4 shadow-lg">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-800 pb-3 gap-2">
+          {/* Selector de Manga si existen múltiples sesiones (ej. Clasificación vs Carrera) */}
+          {sessions.length > 1 && (
+            <div className="flex items-center space-x-2 border-b border-gray-800/80 pb-2.5 overflow-x-auto">
+              <span className="text-[11px] font-mono text-gray-500 uppercase tracking-wider font-semibold">
+                Manga a Monitorear:
+              </span>
+              <div className="flex items-center space-x-1.5">
+                {sessions.map((s) => {
+                  const isSelected = activeSession.id === s.id;
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => setSelectedSessionId(s.id)}
+                      className={`px-3 py-1 rounded text-xs font-mono font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                        isSelected
+                          ? 'bg-blue-600 text-white shadow ring-1 ring-blue-400'
+                          : 'bg-[#0a0c10] hover:bg-gray-800 text-gray-300 border border-gray-800'
+                      }`}
+                    >
+                      <span>{s.name}</span>
+                      <span
+                        className={`text-[9px] px-1.5 py-0.2 rounded font-mono uppercase ${
+                          s.status === 'RUNNING'
+                            ? 'bg-emerald-500 text-black font-extrabold animate-pulse'
+                            : s.status === 'TIMING_CLOSED'
+                            ? 'bg-purple-900 text-purple-200 border border-purple-700'
+                            : 'bg-gray-800 text-gray-400'
+                        }`}
+                      >
+                        {s.status === 'RUNNING' ? 'EN VIVO' : s.status === 'TIMING_CLOSED' ? 'CERRADA' : s.status}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b border-gray-800 pb-3 gap-3">
             <div className="flex items-center space-x-2.5">
               <div className="p-1.5 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-400">
                 <Zap className="w-4 h-4" />
@@ -330,23 +547,122 @@ export const RaceControlView: React.FC<Props> = ({
               </div>
             </div>
 
-            <div className="flex items-center space-x-2 text-xs font-mono">
+            <div className="flex flex-wrap items-center gap-2.5 text-xs font-mono">
+              {/* Reloj visible de sesión (El director necesita saber cuánto lleva corriendo la sesión) */}
+              <SessionTimerBadge
+                startedAt={activeSession.startedAt || timing?.startedAt}
+                status={activeSession.status}
+                closedAt={activeSession.closedAt || timing?.closedAt}
+                variant="race-control"
+              />
+
+              {/* Acciones directas de sesión en el monitor */}
+              {activeSession.status === 'RUNNING' && (
+                <>
+                  <button
+                    id="btn-monitor-stop-session"
+                    onClick={() => handleStopSession(activeSession)}
+                    className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-black font-bold rounded flex items-center space-x-1 cursor-pointer transition-colors shadow"
+                    title="Pausar manga temporalmente"
+                  >
+                    <Square className="w-3 h-3 fill-current" />
+                    <span>Pausar</span>
+                  </button>
+                  <button
+                    id="btn-monitor-close-session"
+                    onClick={() => handleCloseSession(activeSession)}
+                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded flex items-center space-x-1 cursor-pointer transition-colors shadow"
+                    title="Cerrar cronometraje de la manga"
+                  >
+                    <Flag className="w-3 h-3" />
+                    <span>Cerrar Manga</span>
+                  </button>
+                </>
+              )}
+
+              {activeSession.status === 'TIMING_CLOSED' && (
+                <button
+                  id="btn-monitor-reopen-session"
+                  onClick={() => handleReopenSession(activeSession)}
+                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded flex items-center space-x-1 cursor-pointer transition-colors shadow"
+                  title="Reanudar cronometraje"
+                >
+                  <Play className="w-3 h-3 fill-current" />
+                  <span>Reabrir Manga</span>
+                </button>
+              )}
+
+              {activeSession.status === 'SCHEDULED' && (
+                <button
+                  id="btn-monitor-start-session"
+                  onClick={() => handleStartSession(activeSession)}
+                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded flex items-center space-x-1 cursor-pointer transition-colors shadow"
+                  title="Iniciar manga"
+                >
+                  <Play className="w-3 h-3 fill-current" />
+                  <span>Iniciar Manga</span>
+                </button>
+              )}
+
+              <button
+                id="btn-monitor-manual-lap"
+                onClick={() => {
+                  setManualLapTeamId(undefined);
+                  setShowManualLapModal(true);
+                }}
+                className="px-2.5 py-1.5 bg-amber-950/70 hover:bg-amber-900 border border-amber-500/50 text-amber-300 font-bold rounded flex items-center space-x-1 cursor-pointer transition-colors shadow"
+                title="Contar vuelta manualmente a una escudería"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                <span>+ Vuelta Manual</span>
+              </button>
+
               <button
                 onClick={() => onNavigate?.('/display')}
                 className="px-2.5 py-1.5 bg-[#0a0c10] hover:bg-gray-800 border border-gray-700 text-gray-300 rounded flex items-center space-x-1 cursor-pointer transition-colors"
               >
                 <ExternalLink className="w-3 h-3 text-cyan-400" />
-                <span>Ver Pantalla 16:9</span>
+                <span>Pantalla 16:9</span>
               </button>
               <button
                 onClick={() => onNavigate?.('/broadcast')}
                 className="px-2.5 py-1.5 bg-[#0a0c10] hover:bg-gray-800 border border-gray-700 text-gray-300 rounded flex items-center space-x-1 cursor-pointer transition-colors"
               >
                 <ExternalLink className="w-3 h-3 text-amber-400" />
-                <span>Ver Broadcast</span>
+                <span>Broadcast</span>
               </button>
             </div>
           </div>
+
+          {/* Banner de Confirmación de Manga Cerrada */}
+          {activeSession.status === 'TIMING_CLOSED' && (
+            <div className="p-3.5 bg-purple-950/70 border border-purple-500/70 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow animate-fade-in">
+              <div className="flex items-center space-x-2.5 text-purple-200">
+                <div className="p-1.5 bg-purple-900/60 rounded-md text-purple-300 flex-shrink-0">
+                  <Flag className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold text-xs uppercase tracking-wider flex items-center space-x-2">
+                    <span>Cronometraje Oficial Cerrado</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 bg-purple-900/90 text-purple-200 rounded border border-purple-700">
+                      {activeSession.name}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-purple-300 font-mono mt-0.5">
+                    El registro de vueltas desde el Pit Wall está bloqueado en todas las escuderías. La clasificación final queda consolidada.
+                  </div>
+                </div>
+              </div>
+              <button
+                id="btn-banner-reopen-session"
+                onClick={() => handleReopenSession(activeSession)}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold font-mono text-xs rounded flex items-center justify-center space-x-1 cursor-pointer transition-colors shadow flex-shrink-0"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Reabrir Manga</span>
+              </button>
+            </div>
+          )}
 
           {/* Tabla de clasificación en vivo */}
           {timing && timing.leaderboard && timing.leaderboard.length > 0 ? (
@@ -354,18 +670,24 @@ export const RaceControlView: React.FC<Props> = ({
               <table className="w-full text-left text-xs font-mono">
                 <thead>
                   <tr className="border-b border-gray-800 text-gray-500 uppercase text-[10px]">
-                    <th className="py-2 px-2 text-center w-12">Pos</th>
+                    <th className="py-2 px-2 text-center w-10">Pos</th>
                     <th className="py-2 px-3">Escudería</th>
-                    <th className="py-2 px-3">Kart</th>
                     <th className="py-2 px-2 text-center">Vueltas</th>
+                    <th className="py-2 px-2 text-center">Boxes</th>
+                    <th className="py-2 px-2 text-center">Compuesto</th>
+                    <th className="py-2 px-2 text-center">Piloto</th>
                     <th className="py-2 px-3 text-right">Última</th>
                     <th className="py-2 px-3 text-right">Mejor</th>
                     <th className="py-2 px-3 text-right">Diferencia</th>
+                    <th className="py-2 px-2 text-center w-36">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/60 font-tabular">
                   {timing.leaderboard.map((item) => {
                     const teamInfo = teams.find((t) => t.id === item.teamId);
+                    const strat = timing.teamsStrategy?.[item.teamId] || item.strategy;
+                    const isInPit = strat?.pitState === 'IN_PIT';
+
                     return (
                       <tr
                         key={item.teamId}
@@ -404,11 +726,45 @@ export const RaceControlView: React.FC<Props> = ({
                             )}
                           </div>
                         </td>
-                        <td className="py-2 px-3 text-gray-400">
-                          {teamInfo?.kartName || 'Kart'}
-                        </td>
                         <td className="py-2 px-2 text-center font-bold text-white">
                           {item.lapCount}
+                        </td>
+                        {/* Boxes (M6) */}
+                        <td className="py-2 px-2 text-center">
+                          <span
+                            className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              isInPit
+                                ? 'bg-amber-950 text-amber-300 border border-amber-800 animate-pulse'
+                                : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                            }`}
+                          >
+                            {isInPit ? 'BOXES' : 'PISTA'}
+                          </span>
+                          <span className="text-[9px] text-gray-500 ml-1">
+                            ({strat?.pitStopCount || 0})
+                          </span>
+                        </td>
+                        {/* Compuesto (M6) */}
+                        <td className="py-2 px-2 text-center">
+                          <span className="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/40 text-[9px] font-bold">
+                            {strat?.currentEquipment || 'HARD'}
+                          </span>
+                          <span className="text-[9px] text-gray-500 ml-1 font-tabular">
+                            {strat?.equipmentStintLaps !== undefined
+                              ? `${strat.equipmentStintLaps}v`
+                              : `${item.lapCount}v`}
+                          </span>
+                        </td>
+                        {/* Piloto (M6) */}
+                        <td className="py-2 px-2 text-center max-w-[90px] truncate">
+                          <span className="text-gray-300 text-[10px] font-bold">
+                            {strat?.currentPersonnel || 'Piloto 1'}
+                          </span>
+                          <span className="text-[9px] text-gray-500 ml-1 font-tabular">
+                            {strat?.personnelStintLaps !== undefined
+                              ? `(${strat.personnelStintLaps}v)`
+                              : `(${item.lapCount}v)`}
+                          </span>
                         </td>
                         <td className="py-2 px-3 text-right text-cyan-400">
                           {formatLapTime(item.lastLapMs)}
@@ -422,6 +778,28 @@ export const RaceControlView: React.FC<Props> = ({
                             : item.position === 1
                             ? 'LÍDER'
                             : '--'}
+                        </td>
+                        <td className="py-2 px-2 text-center">
+                          <div className="flex items-center justify-center space-x-1">
+                            <button
+                              onClick={() => {
+                                setManualLapTeamId(item.teamId);
+                                setShowManualLapModal(true);
+                              }}
+                              className="px-2 py-0.5 bg-amber-950/60 hover:bg-amber-900 border border-amber-600/50 text-amber-300 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer"
+                              title={`Contar vuelta manual a ${teamInfo?.name || item.teamId}`}
+                            >
+                              +1V
+                            </button>
+                            <button
+                              onClick={() => setStrategyDetailTeamId(item.teamId)}
+                              className="px-2 py-0.5 bg-[#1a2130] hover:bg-blue-900/60 border border-blue-700/50 text-blue-300 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer flex items-center space-x-0.5"
+                              title={`Ver estrategia y paradas de ${teamInfo?.name || item.teamId}`}
+                            >
+                              <Wrench className="w-2.5 h-2.5 text-cyan-400" />
+                              <span>M6</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -819,9 +1197,20 @@ export const RaceControlView: React.FC<Props> = ({
                       )}
 
                       {s.status === 'TIMING_CLOSED' && (
-                        <span className="px-2 py-0.5 bg-purple-950/70 border border-purple-800 text-purple-300 text-[10px] font-mono rounded">
-                          CERRADA
-                        </span>
+                        <div className="flex items-center space-x-1">
+                          <span className="px-2 py-0.5 bg-purple-950/70 border border-purple-800 text-purple-300 text-[10px] font-mono rounded">
+                            CERRADA
+                          </span>
+                          <button
+                            id={`btn-reopen-session-${s.id}`}
+                            onClick={() => handleReopenSession(s)}
+                            className="px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] font-bold font-mono transition-colors cursor-pointer flex items-center space-x-1"
+                            title="Reabrir cronometraje de la manga"
+                          >
+                            <Play className="w-3 h-3 fill-current" />
+                            <span>REABRIR</span>
+                          </button>
+                        </div>
                       )}
 
                       <button
@@ -858,12 +1247,34 @@ export const RaceControlView: React.FC<Props> = ({
       {showEventModal && (
         <EventConfigModal
           currentEvent={event}
+          isNewEvent={isCreatingNewEvent}
           onEventSaved={() => {
             setShowEventModal(false);
+            setIsCreatingNewEvent(false);
             setActionFeedback('Evento deportivo guardado con éxito.');
             onRefreshData();
           }}
-          onCancel={() => setShowEventModal(false)}
+          onCancel={() => {
+            setShowEventModal(false);
+            setIsCreatingNewEvent(false);
+          }}
+        />
+      )}
+
+      {showManualLapModal && activeSession && (
+        <ManualLapModal
+          sessionId={activeSession.id}
+          teams={teams}
+          defaultTeamId={manualLapTeamId}
+          onClose={() => {
+            setShowManualLapModal(false);
+            setManualLapTeamId(undefined);
+          }}
+          onSuccess={(msg) => {
+            setActionFeedback(msg);
+            refreshTiming();
+            onRefreshData();
+          }}
         />
       )}
 
@@ -899,6 +1310,170 @@ export const RaceControlView: React.FC<Props> = ({
           }}
         />
       )}
+
+      {/* Diálogo de Confirmación: Cierre Oficial de Cronometraje */}
+      <ConfirmModal
+        isOpen={!!sessionToClose}
+        title="Cerrar Cronometraje Oficial"
+        message={
+          sessionToClose
+            ? `¿Confirmar el cierre de cronometraje para la manga "${sessionToClose.name}" (${
+                sessionToClose.type === 'qualifying'
+                  ? 'Clasificación'
+                  : sessionToClose.type === 'race'
+                  ? 'Gran Carrera'
+                  : 'Sesión'
+              })?`
+            : ''
+        }
+        details={[
+          'Se bloqueará de inmediato el botón de registrar vuelta en el Pit Wall de todas las escuderías.',
+          'La clasificación y los tiempos de vuelta quedarán consolidados en el servidor Node.js.',
+          'Podrá reabrir el cronometraje en cualquier momento desde Dirección de Carrera si lo requiere.'
+        ]}
+        confirmText="Cerrar Cronometraje Oficial"
+        cancelText="Volver atrás"
+        variant="purple"
+        isLoading={isActionLoading}
+        onConfirm={executeCloseSession}
+        onCancel={() => setSessionToClose(null)}
+      />
+
+      {/* Diálogo de Confirmación: Eliminación de Sesión */}
+      <ConfirmModal
+        isOpen={!!sessionToDelete}
+        title="Eliminar Sesión / Manga"
+        message={
+          sessionToDelete
+            ? `¿Está seguro de que desea eliminar permanentemente la sesión "${sessionToDelete.name}"?`
+            : ''
+        }
+        details={[
+          'Se eliminarán todos los registros de vueltas y telemetría histórica asociados a esta manga.',
+          'Esta acción es destructiva y no se puede deshacer.'
+        ]}
+        confirmText="Eliminar Sesión Definitivamente"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={isActionLoading}
+        onConfirm={executeDeleteSession}
+        onCancel={() => setSessionToDelete(null)}
+      />
+
+      {/* Diálogo de Confirmación: Eliminación de Escudería */}
+      <ConfirmModal
+        isOpen={!!teamToDelete}
+        title="Eliminar Escudería"
+        message={
+          teamToDelete
+            ? `¿Confirmar la eliminación de la escudería "${teamToDelete.name}"${
+                teamToDelete.kartName ? ` (${teamToDelete.kartName})` : teamToDelete.number ? ` (Kart #${teamToDelete.number})` : ''
+              }?`
+            : ''
+        }
+        details={[
+          'La escudería perderá acceso a su panel de Pit Wall y no podrá registrar más tiempos.',
+          'Los karts y pilotos asignados serán removidos de las mangas.'
+        ]}
+        confirmText="Eliminar Escudería"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={isActionLoading}
+        onConfirm={executeDeleteTeam}
+        onCancel={() => setTeamToDelete(null)}
+      />
+
+      {/* Diálogo de Confirmación: Regeneración de Token */}
+      <ConfirmModal
+        isOpen={!!teamToRegenerate}
+        title="Regenerar Token de Seguridad"
+        message={
+          teamToRegenerate
+            ? `¿Regenerar el token de acceso para la escudería "${teamToRegenerate.name}"?`
+            : ''
+        }
+        details={[
+          'Los dispositivos conectados actualmente en el Pit Wall deberán escanear el nuevo enlace o QR.',
+          'El token anterior quedará revocado inmediatamente.'
+        ]}
+        confirmText="Regenerar Token"
+        cancelText="Cancelar"
+        variant="warning"
+        isLoading={isActionLoading}
+        onConfirm={executeRegenerateToken}
+        onCancel={() => setTeamToRegenerate(null)}
+      />
+
+      {/* Diálogo de Confirmación: Expulsión de Dispositivo */}
+      <ConfirmModal
+        isOpen={!!deviceToKick}
+        title="Desconectar Dispositivo"
+        message={
+          deviceToKick
+            ? `¿Desconectar la sesión activa del dispositivo "${deviceToKick.label}"?`
+            : ''
+        }
+        details={[
+          'La sesión de presencia del dispositivo será invalidada en el servidor en tiempo real.'
+        ]}
+        confirmText="Desconectar Dispositivo"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={isActionLoading}
+        onConfirm={executeKickSession}
+        onCancel={() => setDeviceToKick(null)}
+      />
+
+      {/* Modal de Detalle de Estrategia de Escudería (M6) */}
+      {strategyDetailTeamId && activeSession && (
+        <TeamStrategyDetailModal
+          isOpen={!!strategyDetailTeamId}
+          team={teams.find((t) => t.id === strategyDetailTeamId) || {
+            id: strategyDetailTeamId,
+            eventId: activeSession.eventId || '',
+            name: strategyDetailTeamId,
+            color: '#3b82f6',
+            token: '',
+            createdAt: '',
+            updatedAt: ''
+          }}
+          session={activeSession}
+          strategy={timing?.teamsStrategy?.[strategyDetailTeamId]}
+          onClose={() => setStrategyDetailTeamId(null)}
+          onPitIn={handleRaceControlPitIn}
+          onPitOut={handleRaceControlPitOut}
+          onChangeEquipment={(tId) => {
+            setStrategyChangeTeamId(tId);
+            setStrategyChangeType('equipment');
+          }}
+          onChangePersonnel={(tId) => {
+            setStrategyChangeTeamId(tId);
+            setStrategyChangeType('personnel');
+          }}
+        />
+      )}
+
+      {/* Modal de Cambio de Compuesto / Personal para Comisarios (M6) */}
+      <StrategyChangeModal
+        isOpen={!!strategyChangeType && !!strategyChangeTeamId}
+        type={strategyChangeType || 'equipment'}
+        teamName={teams.find((t) => t.id === strategyChangeTeamId)?.name || ''}
+        currentValue={
+          strategyChangeType === 'equipment'
+            ? timing?.teamsStrategy?.[strategyChangeTeamId!]?.currentEquipment || 'HARD'
+            : timing?.teamsStrategy?.[strategyChangeTeamId!]?.currentPersonnel || 'Piloto 1'
+        }
+        onClose={() => {
+          setStrategyChangeType(null);
+          setStrategyChangeTeamId(null);
+        }}
+        onSubmit={
+          strategyChangeType === 'equipment'
+            ? handleRaceControlEquipmentSubmit
+            : handleRaceControlPersonnelSubmit
+        }
+        isLoading={isStrategySubmitting}
+      />
     </div>
   );
 };

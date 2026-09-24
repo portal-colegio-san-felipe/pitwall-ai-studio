@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { getPersistenceStore } from '../storage/index.js';
 import { LapRecord } from '../storage/types.js';
 import { realtimeBus } from '../realtime.js';
+import { computeAllTeamsStrategy } from '../strategy.js';
 
 export const timingRouter = Router();
 
@@ -10,7 +11,7 @@ export const timingRouter = Router();
 const MIN_LAP_INTERVAL_MS = 3500;
 
 /**
- * Función central autoritativa para calcular la proyección de tiempos de una sesión
+ * Función central autoritativa para calcular la proyección de tiempos y estrategia de una sesión
  */
 export async function computeTimingOverview(sessionId: string) {
   const store = getPersistenceStore();
@@ -23,6 +24,14 @@ export async function computeTimingOverview(sessionId: string) {
 
   const laps = await store.getLaps(sessionId);
   const validLaps = laps.filter((l) => l.isValid);
+  const raceEvents = await store.getRaceEvents(sessionId);
+
+  // Calcular métricas de estrategia neutral para todos los equipos (M6)
+  const allTeamsStrategy = computeAllTeamsStrategy(
+    session.participatingTeamIds,
+    validLaps,
+    raceEvents
+  );
 
   let fastestLapMs: number | undefined = undefined;
   let fastestLapTeamId: string | undefined = undefined;
@@ -66,13 +75,22 @@ export async function computeTimingOverview(sessionId: string) {
     });
   }
 
+  const leaderBestLap = teamEntries[0]?.bestLapMs;
   const leaderTimestamp = teamEntries[0]?.lastTimestampMs;
   const leaderboard = teamEntries.map((entry, idx) => {
     const position = idx + 1;
     let gapMs: number | undefined = undefined;
-    if (position > 1 && leaderTimestamp && entry.lastTimestampMs) {
-      gapMs = entry.lastTimestampMs - leaderTimestamp;
+    if (position > 1) {
+      if (session.type === 'qualifying') {
+        if (leaderBestLap !== undefined && entry.bestLapMs !== undefined && entry.bestLapMs > leaderBestLap) {
+          gapMs = entry.bestLapMs - leaderBestLap;
+        }
+      } else if (leaderTimestamp && entry.lastTimestampMs) {
+        gapMs = entry.lastTimestampMs - leaderTimestamp;
+      }
     }
+
+    const strat = allTeamsStrategy[entry.teamId];
 
     return {
       position,
@@ -82,7 +100,21 @@ export async function computeTimingOverview(sessionId: string) {
       bestLapMs: entry.bestLapMs,
       lastTimestampMs: entry.lastTimestampMs,
       gapMs: gapMs && gapMs > 0 ? gapMs : undefined,
-      isFastestLap: fastestLapTeamId === entry.teamId && (entry.bestLapMs || 0) > 0
+      isFastestLap: fastestLapTeamId === entry.teamId && (entry.bestLapMs || 0) > 0,
+      // Medición neutral de estrategia proyectada (M6)
+      strategy: strat
+        ? {
+            pitState: strat.pitState,
+            pitStopCount: strat.pitStopCount,
+            currentPitInTimestamp: strat.currentPitInTimestamp,
+            currentPitDurationMs: strat.currentPitDurationMs,
+            lastPitDurationMs: strat.lastPitDurationMs,
+            currentEquipment: strat.currentEquipment,
+            equipmentStintLaps: strat.equipmentStintLaps,
+            currentPersonnel: strat.currentPersonnel,
+            personnelStintLaps: strat.personnelStintLaps
+          }
+        : undefined
     };
   });
 
@@ -90,10 +122,12 @@ export async function computeTimingOverview(sessionId: string) {
     sessionId: session.id,
     sessionStatus: session.status,
     startedAt: session.startedAt,
+    closedAt: session.closedAt,
     fastestLapTeamId,
     fastestLapMs,
     totalLapsRecorded: validLaps.length,
     leaderboard,
+    teamsStrategy: allTeamsStrategy,
     revision: realtimeBus.getRevision(),
     lastUpdated: new Date().toISOString()
   };
@@ -216,7 +250,9 @@ timingRouter.post('/sessions/:sessionId/close', async (req: Request, res: Respon
       return res.status(404).json({ ok: false, error: { code: 'SESSION_NOT_FOUND', message: 'Sesión no encontrada' } });
     }
 
+    const closeTimestamp = Date.now();
     session.status = 'TIMING_CLOSED';
+    session.closedAt = closeTimestamp;
     session.updatedAt = new Date().toISOString();
     await store.saveSession(session);
 
@@ -224,8 +260,8 @@ timingRouter.post('/sessions/:sessionId/close', async (req: Request, res: Respon
       id: crypto.randomUUID(),
       sessionId: session.id,
       type: 'SESSION_TIMING_CLOSED',
-      serverTimestamp: Date.now(),
-      payload: { closedAt: Date.now() },
+      serverTimestamp: closeTimestamp,
+      payload: { closedAt: closeTimestamp },
       actor: 'race-control'
     });
 
@@ -236,6 +272,50 @@ timingRouter.post('/sessions/:sessionId/close', async (req: Request, res: Respon
     return res.json({ ok: true, session });
   } catch {
     return res.status(500).json({ ok: false, error: { code: 'SERVER_ERROR', message: 'Error al cerrar cronometraje' } });
+  }
+});
+
+/**
+ * Reabrir cronometraje de una sesión cerrada
+ * POST /sessions/:sessionId/reopen
+ */
+timingRouter.post('/sessions/:sessionId/reopen', async (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const store = getPersistenceStore();
+
+  try {
+    const event = await store.getEvent();
+    if (!event) {
+      return res.status(400).json({ ok: false, error: { code: 'NO_EVENT', message: 'No hay evento configurado' } });
+    }
+
+    const sessions = await store.getSessions(event.id);
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) {
+      return res.status(404).json({ ok: false, error: { code: 'SESSION_NOT_FOUND', message: 'Sesión no encontrada' } });
+    }
+
+    session.status = 'RUNNING';
+    session.closedAt = undefined;
+    session.updatedAt = new Date().toISOString();
+    await store.saveSession(session);
+
+    await store.appendRaceEvent({
+      id: crypto.randomUUID(),
+      sessionId: session.id,
+      type: 'SESSION_REOPENED',
+      serverTimestamp: Date.now(),
+      payload: { reopenedAt: Date.now() },
+      actor: 'race-control'
+    });
+
+    const overview = await computeTimingOverview(session.id);
+    realtimeBus.publishSessionUpdate(session.id, session);
+    if (overview) realtimeBus.publishTimingUpdate(session.id, overview);
+
+    return res.json({ ok: true, session });
+  } catch {
+    return res.status(500).json({ ok: false, error: { code: 'SERVER_ERROR', message: 'Error al reabrir cronometraje' } });
   }
 });
 
@@ -436,6 +516,125 @@ timingRouter.get('/sessions/:sessionId/laps', async (req: Request, res: Response
     return res.json({ ok: true, laps });
   } catch {
     return res.status(500).json({ ok: false, error: { code: 'SERVER_ERROR', message: 'Error al obtener historial' } });
+  }
+});
+
+/**
+ * Registrar vuelta manualmente por Dirección de Carrera / Comisarios
+ * (Útil ante pérdida de conectividad en el Pit Wall o avería de tablet)
+ * POST /sessions/:sessionId/laps/manual
+ * Body: { teamId: string, lapTimeMs?: number, reason?: string, actor?: string }
+ */
+timingRouter.post('/sessions/:sessionId/laps/manual', async (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const { teamId, lapTimeMs, reason, actor } = req.body;
+  const store = getPersistenceStore();
+
+  try {
+    const event = await store.getEvent();
+    if (!event) {
+      return res.status(400).json({ ok: false, error: { code: 'NO_EVENT', message: 'No hay evento activo' } });
+    }
+
+    const sessions = await store.getSessions(event.id);
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) {
+      return res.status(404).json({ ok: false, error: { code: 'SESSION_NOT_FOUND', message: 'Manga no encontrada' } });
+    }
+
+    if (session.status !== 'RUNNING' && session.status !== 'TIMING_CLOSED') {
+      return res.status(400).json({
+        ok: false,
+        error: { code: 'SESSION_NOT_ACTIVE', message: 'La manga no se encuentra activa para registrar vueltas' }
+      });
+    }
+
+    if (!teamId) {
+      return res.status(400).json({
+        ok: false,
+        error: { code: 'TEAM_ID_REQUIRED', message: 'Debe seleccionar una escudería para el conteo de vuelta' }
+      });
+    }
+
+    if (!session.participatingTeamIds.includes(teamId)) {
+      return res.status(403).json({
+        ok: false,
+        error: { code: 'TEAM_NOT_IN_SESSION', message: 'La escudería no está inscrita en esta manga' }
+      });
+    }
+
+    const serverNow = Date.now();
+    const existingLaps = await store.getLaps(sessionId);
+    const validTeamLaps = existingLaps.filter((l) => l.teamId === teamId && l.isValid);
+    const lapNumber = validTeamLaps.length + 1;
+
+    // Calcular tiempo de vuelta si no fue especificado manualmente
+    let finalLapTimeMs: number;
+    if (typeof lapTimeMs === 'number' && !isNaN(lapTimeMs) && lapTimeMs > 0) {
+      finalLapTimeMs = Math.round(lapTimeMs);
+    } else {
+      const lastLap = validTeamLaps[validTeamLaps.length - 1];
+      const previousTimestamp = lastLap ? lastLap.serverTimestamp : (session.startedAt || serverNow);
+      const computedDelta = serverNow - previousTimestamp;
+      finalLapTimeMs = computedDelta > 1000 ? computedDelta : 30000;
+    }
+
+    const auditActor = (typeof actor === 'string' && actor.trim()) ? actor.trim() : 'Dirección de Carrera';
+    const auditReason = (typeof reason === 'string' && reason.trim()) ? reason.trim() : 'Conteo manual por Dirección de Carrera';
+
+    const newLap: LapRecord = {
+      id: `lap-rc-${crypto.randomUUID()}`,
+      sessionId,
+      teamId,
+      lapNumber,
+      serverTimestamp: serverNow,
+      lapTimeMs: finalLapTimeMs,
+      isValid: true,
+      recordedBy: auditActor,
+      clientIntentId: `manual-override-${crypto.randomUUID()}`
+    };
+
+    await store.saveLap(newLap);
+
+    // Auditoría inmutable
+    await store.appendRaceEvent({
+      id: crypto.randomUUID(),
+      sessionId,
+      teamId,
+      type: 'LAP_MANUALLY_RECORDED',
+      serverTimestamp: serverNow,
+      payload: {
+        lapId: newLap.id,
+        lapNumber,
+        lapTimeMs: finalLapTimeMs,
+        reason: auditReason,
+        actor: auditActor
+      },
+      actor: auditActor
+    });
+
+    const updatedTiming = await computeTimingOverview(sessionId);
+    if (updatedTiming) {
+      realtimeBus.publishTimingUpdate(sessionId, updatedTiming);
+    }
+
+    const teamEntry = updatedTiming?.leaderboard.find((l) => l.teamId === teamId);
+
+    return res.status(201).json({
+      ok: true,
+      message: `Vuelta #${lapNumber} registrada manualmente para la escudería`,
+      lap: newLap,
+      timing: updatedTiming,
+      stats: {
+        lapCount: teamEntry?.lapCount || lapNumber,
+        lastLapMs: teamEntry?.lastLapMs || finalLapTimeMs,
+        bestLapMs: teamEntry?.bestLapMs || finalLapTimeMs,
+        position: teamEntry?.position
+      }
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error desconocido';
+    return res.status(500).json({ ok: false, error: { code: 'SERVER_ERROR', message: msg } });
   }
 });
 

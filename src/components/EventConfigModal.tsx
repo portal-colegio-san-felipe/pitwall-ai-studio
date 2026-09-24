@@ -4,14 +4,15 @@ import { EventModel } from '../types';
 
 interface Props {
   currentEvent: EventModel | null;
+  isNewEvent?: boolean;
   onEventSaved: (event: EventModel) => void;
   onCancel?: () => void;
 }
 
-export const EventConfigModal: React.FC<Props> = ({ currentEvent, onEventSaved, onCancel }) => {
-  const [name, setName] = useState(currentEvent?.name || '');
-  const [edition, setEdition] = useState(currentEvent?.edition || '1');
-  const [configuredBy, setConfiguredBy] = useState(currentEvent?.configuredBy || 'Director de Carrera');
+export const EventConfigModal: React.FC<Props> = ({ currentEvent, isNewEvent = false, onEventSaved, onCancel }) => {
+  const [name, setName] = useState(isNewEvent ? '' : currentEvent?.name || '');
+  const [edition, setEdition] = useState(isNewEvent ? '1' : currentEvent?.edition || '1');
+  const [configuredBy, setConfiguredBy] = useState(isNewEvent ? 'Director de Carrera' : currentEvent?.configuredBy || 'Director de Carrera');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,7 +33,8 @@ export const EventConfigModal: React.FC<Props> = ({ currentEvent, onEventSaved, 
         body: JSON.stringify({
           name: name.trim(),
           edition: edition.trim(),
-          configuredBy: configuredBy.trim()
+          configuredBy: configuredBy.trim(),
+          isNewEvent
         })
       });
 
@@ -50,6 +52,8 @@ export const EventConfigModal: React.FC<Props> = ({ currentEvent, onEventSaved, 
     }
   };
 
+  const isEditingExisting = Boolean(currentEvent && !isNewEvent);
+
   return (
     <div id="event-config-modal-overlay" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
       <div id="event-config-modal" className="bg-[#131720] border border-gray-800 rounded-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-2xl">
@@ -59,7 +63,7 @@ export const EventConfigModal: React.FC<Props> = ({ currentEvent, onEventSaved, 
           </div>
           <div>
             <h2 className="text-lg font-bold text-white uppercase tracking-wide">
-              {currentEvent ? 'Modificar Evento Escolar' : 'Configurar Nuevo Evento'}
+              {isEditingExisting ? 'Modificar Evento Escolar' : 'Crear Nuevo Evento Escolar'}
             </h2>
             <p className="text-xs text-gray-400 font-mono">
               Contenedor principal de la competición de karts

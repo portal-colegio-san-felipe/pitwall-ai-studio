@@ -1,8 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Wifi, Clock, AlertTriangle, Key, RefreshCw, Smartphone, CheckCircle, ShieldAlert } from 'lucide-react';
+import {
+  Wifi,
+  Clock,
+  AlertTriangle,
+  Key,
+  RefreshCw,
+  Smartphone,
+  CheckCircle,
+  ShieldAlert,
+  Flag,
+  Lock,
+  Wrench,
+  Disc,
+  User,
+  ArrowDownCircle,
+  ArrowUpCircle
+} from 'lucide-react';
 import { TeamModel, EventModel, SessionModel, LapRecordModel } from '../types';
 import { usePresence } from '../hooks/usePresence';
 import { useRealtimeTiming } from '../hooks/useRealtimeTiming';
+import { StrategyChangeModal } from '../components/StrategyChangeModal';
+import { SessionTimerBadge } from '../components/SessionTimerBadge';
 
 interface Props {
   initialToken?: string;
@@ -28,6 +46,12 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
   const [lapFeedback, setLapFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
   const [teamLaps, setTeamLaps] = useState<LapRecordModel[]>([]);
 
+  // Estados de estrategia neutral (M6)
+  const [isStrategyActionLoading, setIsStrategyActionLoading] = useState<boolean>(false);
+  const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState<boolean>(false);
+  const [isPersonnelModalOpen, setIsPersonnelModalOpen] = useState<boolean>(false);
+  const [pitElapsedSeconds, setPitElapsedSeconds] = useState<number>(0);
+
   // Hook de presencia para el operador de equipo
   const { sessionId, status: presenceStatus, isKicked, kickMessage, reconnect } = usePresence({
     role: 'team-operator',
@@ -50,7 +74,132 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
       setPosition(entry.position);
       setGapMs(entry.gapMs);
     }
-  }, [timing, team?.id]);
+
+    // Sincronizar inmediatamente el estado de la sesión para reactivar el botón sin recargar página
+    if (timing.sessionStatus) {
+      setActiveSession((prev) => {
+        if (!prev) {
+          return {
+            id: timing.sessionId,
+            eventId: '',
+            name: 'Manga Activa',
+            type: 'race',
+            participatingTeamIds: [team.id],
+            status: timing.sessionStatus as SessionModel['status'],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+        }
+        if (prev.status !== timing.sessionStatus) {
+          return { ...prev, status: timing.sessionStatus as SessionModel['status'] };
+        }
+        return prev;
+      });
+    }
+  }, [timing, team]);
+
+  const teamStrategy = team ? timing?.teamsStrategy?.[team.id] : undefined;
+  const isInPit = teamStrategy?.pitState === 'IN_PIT';
+
+  // Cronómetro en vivo de estancia en boxes (M6)
+  useEffect(() => {
+    if (!isInPit || !teamStrategy?.currentPitInTimestamp) {
+      setPitElapsedSeconds(0);
+      return;
+    }
+    const updateTimer = () => {
+      const elapsed = Math.max(
+        0,
+        Math.floor((Date.now() - (teamStrategy.currentPitInTimestamp || Date.now())) / 1000)
+      );
+      setPitElapsedSeconds(elapsed);
+    };
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [isInPit, teamStrategy?.currentPitInTimestamp]);
+
+  const handlePitIn = async () => {
+    if (!team || !activeSession || isStrategyActionLoading) return;
+    setIsStrategyActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${activeSession.id}/strategy/pit-in`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${team.token}`
+        },
+        body: JSON.stringify({ teamId: team.id })
+      });
+      if (res.ok) {
+        await refreshTiming();
+      }
+    } finally {
+      setIsStrategyActionLoading(false);
+    }
+  };
+
+  const handlePitOut = async () => {
+    if (!team || !activeSession || isStrategyActionLoading) return;
+    setIsStrategyActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${activeSession.id}/strategy/pit-out`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${team.token}`
+        },
+        body: JSON.stringify({ teamId: team.id })
+      });
+      if (res.ok) {
+        await refreshTiming();
+      }
+    } finally {
+      setIsStrategyActionLoading(false);
+    }
+  };
+
+  const handleSubmitEquipment = async (newEquipment: string, reason?: string) => {
+    if (!team || !activeSession) return;
+    setIsStrategyActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${activeSession.id}/strategy/equipment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${team.token}`
+        },
+        body: JSON.stringify({ teamId: team.id, equipment: newEquipment, reason })
+      });
+      if (res.ok) {
+        setIsEquipmentModalOpen(false);
+        await refreshTiming();
+      }
+    } finally {
+      setIsStrategyActionLoading(false);
+    }
+  };
+
+  const handleSubmitPersonnel = async (newPersonnel: string, reason?: string) => {
+    if (!team || !activeSession) return;
+    setIsStrategyActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${activeSession.id}/strategy/personnel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${team.token}`
+        },
+        body: JSON.stringify({ teamId: team.id, personnel: newPersonnel, reason })
+      });
+      if (res.ok) {
+        setIsPersonnelModalOpen(false);
+        await refreshTiming();
+      }
+    } finally {
+      setIsStrategyActionLoading(false);
+    }
+  };
 
   const fetchTeamLaps = useCallback(async () => {
     if (!activeSession || !team) return;
@@ -105,6 +254,41 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
     }
   }, []);
 
+  // Sondeo reactivo de mangas: verificar periódicamente para mantener el estado de la manga sincronizado
+  // tanto al iniciar como al cerrar cronometraje por Dirección de Carrera (sin requerir recarga)
+  const isSessionRunning = (timing?.sessionStatus || activeSession?.status) === 'RUNNING';
+
+  useEffect(() => {
+    if (!team) return;
+
+    const syncSessions = async () => {
+      try {
+        const res = await fetch(`/api/teams/access/${encodeURIComponent(team.token)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.sessions)) {
+          const sessions: SessionModel[] = data.sessions;
+          const running = sessions.find((s) => s.status === 'RUNNING');
+          if (running) {
+            setActiveSession(running);
+          } else if (activeSession) {
+            const currentSame = sessions.find((s) => s.id === activeSession.id);
+            if (currentSame && currentSame.status !== activeSession.status) {
+              setActiveSession(currentSame);
+            }
+          } else if (sessions.length > 0) {
+            setActiveSession(sessions[0]);
+          }
+        }
+      } catch {
+        // Silencioso
+      }
+    };
+
+    const interval = setInterval(syncSessions, 2000);
+    return () => clearInterval(interval);
+  }, [team, activeSession?.id, activeSession?.status]);
+
   // Al montar, verificar si hay token en URL o en sessionStorage
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -119,6 +303,14 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
   // Manejador del botón autoritativo: REGISTRAR VUELTA (Criterio M3)
   const handleRegisterLap = async () => {
     if (!team || !activeSession || isSubmittingLap) return;
+
+    if (effectiveSessionStatus === 'TIMING_CLOSED') {
+      setLapFeedback({
+        type: 'error',
+        message: 'El cronometraje de esta manga está cerrado. Dirección de Carrera ha finalizado la sesión.'
+      });
+      return;
+    }
 
     setIsSubmittingLap(true);
     setLapFeedback(null);
@@ -191,7 +383,7 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
   };
 
   const isOnline = presenceStatus === 'ONLINE' && !isKicked;
-  const isSessionRunning = activeSession?.status === 'RUNNING';
+  const effectiveSessionStatus = timing?.sessionStatus || activeSession?.status;
 
   // Si no está autenticado con un token de equipo, mostrar pantalla de acceso de escudería
   if (!team) {
@@ -347,20 +539,30 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
           </div>
         </div>
 
-        <div className="text-right flex-shrink-0 pl-2">
-          <div className="text-[10px] font-mono text-gray-500 uppercase">Estado</div>
-          <div
-            id="pitwall-connection-status"
-            className={`text-xs font-mono font-bold flex items-center space-x-1 ${
-              isOnline
-                ? 'text-emerald-400'
-                : presenceStatus === 'RECONNECTING'
-                ? 'text-amber-400'
-                : 'text-rose-400'
-            }`}
-          >
-            <Wifi className="w-3 h-3" />
-            <span>{isOnline ? 'EN LÍNEA' : presenceStatus === 'RECONNECTING' ? 'RECONECTANDO' : 'SIN CONEXIÓN'}</span>
+        <div className="flex items-center space-x-3 text-right flex-shrink-0 pl-2">
+          {/* Reloj visible discreto para Pit Wall (útil para estrategia y contexto) */}
+          <SessionTimerBadge
+            startedAt={activeSession?.startedAt || timing?.startedAt}
+            status={effectiveSessionStatus}
+            closedAt={activeSession?.closedAt || timing?.closedAt}
+            variant="pit-wall"
+          />
+
+          <div>
+            <div className="text-[10px] font-mono text-gray-500 uppercase">Estado</div>
+            <div
+              id="pitwall-connection-status"
+              className={`text-xs font-mono font-bold flex items-center space-x-1 ${
+                isOnline
+                  ? 'text-emerald-400'
+                  : presenceStatus === 'RECONNECTING'
+                  ? 'text-amber-400'
+                  : 'text-rose-400'
+              }`}
+            >
+              <Wifi className="w-3 h-3" />
+              <span>{isOnline ? 'EN LÍNEA' : presenceStatus === 'RECONNECTING' ? 'RECONECTANDO' : 'SIN CONEXIÓN'}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -471,6 +673,23 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
         </div>
       </div>
 
+      {/* Banner de Estado Crítico: Manga Finalizada por Dirección de Carrera */}
+      {effectiveSessionStatus === 'TIMING_CLOSED' && (
+        <div className="p-4 bg-purple-950/80 border-2 border-purple-500 rounded-xl flex items-center space-x-3 shadow-lg animate-fade-in">
+          <div className="p-2.5 bg-purple-900/60 border border-purple-400/40 rounded-lg text-purple-300 flex-shrink-0">
+            <Flag className="w-6 h-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold text-purple-200 uppercase tracking-wide flex items-center space-x-2">
+              <span>Manga Finalizada por Dirección de Carrera</span>
+            </div>
+            <div className="text-xs text-purple-300 font-mono mt-0.5">
+              El cronometraje de la manga está cerrado. Vueltas consolidadas: <strong className="text-white">{lapCount}</strong>. No se aceptan más pulsaciones.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Botón Principal Gigante: REGISTRAR VUELTA (M3)
           Deshabilitado estrictamente si está SIN CONEXIÓN o si la sesión no está en RUNNING */}
       <div className="space-y-2">
@@ -481,24 +700,36 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
           className={`w-full py-8 px-4 rounded-2xl border-2 font-bold text-xl tracking-wider uppercase flex flex-col items-center justify-center space-y-1 shadow-xl select-none transition-all ${
             isOnline && isSessionRunning
               ? 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 border-emerald-400 text-white cursor-pointer'
+              : effectiveSessionStatus === 'TIMING_CLOSED'
+              ? 'bg-[#151224] border-purple-700 text-purple-300/70 cursor-not-allowed'
               : 'bg-[#1a2130] border-gray-700 text-gray-500 cursor-not-allowed opacity-75'
           }`}
         >
           <div className="flex items-center space-x-2">
             {isSubmittingLap ? (
               <RefreshCw className="w-6 h-6 animate-spin" />
+            ) : effectiveSessionStatus === 'TIMING_CLOSED' ? (
+              <Lock className="w-6 h-6 text-purple-400" />
             ) : (
               <Clock className="w-6 h-6" />
             )}
-            <span>{isSubmittingLap ? 'ENVIANDO A META...' : 'REGISTRAR VUELTA'}</span>
+            <span>
+              {isSubmittingLap
+                ? 'ENVIANDO A META...'
+                : effectiveSessionStatus === 'TIMING_CLOSED'
+                ? 'CRONOMETRAJE CERRADO'
+                : 'REGISTRAR VUELTA'}
+            </span>
           </div>
           <span className="text-[11px] font-mono font-normal normal-case text-gray-300">
             {!isOnline
               ? 'Bloqueado: Sin conexión autoritativa con el servidor'
+              : effectiveSessionStatus === 'TIMING_CLOSED'
+              ? 'Manga Finalizada: Cronometraje cerrado por Dirección de Carrera'
               : !isSessionRunning
               ? activeSession
-                ? `Manga en estado ${activeSession.status} (Inicie la manga en Dirección de Carrera)`
-                : 'Sin manga asignada para esta escudería'
+                ? `Manga en espera (${effectiveSessionStatus || activeSession.status}) - Se activará al iniciar en Dirección de Carrera`
+                : 'Esperando asignación de manga para esta escudería'
               : 'Pulsar al cruzar la línea de meta'}
           </span>
         </button>
@@ -508,25 +739,158 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
         </p>
       </div>
 
-      {/* Telemetría Neutral de Estrategia */}
-      <div className="bg-[#131720] border border-gray-800 rounded-xl p-4 space-y-3 text-xs">
+      {/* Medición Neutral de Estrategia (Módulo M6) */}
+      <div className="bg-[#131720] border border-gray-800 rounded-xl p-4 space-y-3.5 text-xs shadow-md">
         <div className="flex items-center justify-between border-b border-gray-800 pb-2">
-          <span className="font-bold text-gray-300 uppercase tracking-wider text-[11px]">
-            Estrategia de Paradas & Calzado
+          <div className="flex items-center space-x-2">
+            <Wrench className="w-4 h-4 text-cyan-400" />
+            <span className="font-bold text-gray-200 uppercase tracking-wider text-[11px]">
+              Estrategia y Medición Neutral
+            </span>
+          </div>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#0a0c10] border border-gray-800 text-gray-400">
+            M6 Fáctico
           </span>
-          <span className="text-[10px] font-mono text-gray-500">Módulo M6</span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
-          <div className="bg-[#0a0c10] border border-gray-800/80 rounded p-2.5 space-y-1">
-            <div className="text-gray-500 text-[10px]">CALZADO ACTUAL</div>
-            <div className="text-amber-400 font-semibold">SIN CONFIGURAR</div>
-            <div className="text-gray-500 text-[10px]">Stint: {lapCount} vueltas</div>
+        {/* Tarjeta de Paradas en Boxes (PIT IN / OUT) */}
+        <div
+          className={`p-3.5 rounded-xl border transition-all ${
+            isInPit
+              ? 'bg-amber-950/40 border-amber-500/80 shadow-lg ring-1 ring-amber-500/30'
+              : 'bg-[#0a0c10] border-gray-800/80'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="text-[10px] font-mono text-gray-400 uppercase tracking-wider">
+                Estado en Pista / Boxes
+              </div>
+              <div className="flex items-center space-x-2">
+                <span
+                  className={`text-xs font-black font-mono tracking-wide px-2.5 py-1 rounded uppercase ${
+                    isInPit
+                      ? 'bg-amber-500 text-black animate-pulse font-bold'
+                      : 'bg-emerald-950 border border-emerald-700 text-emerald-300'
+                  }`}
+                >
+                  {isInPit ? 'EN BOXES' : 'EN PISTA'}
+                </span>
+                {isInPit && (
+                  <span className="text-xs font-bold text-amber-300 font-mono font-tabular animate-pulse">
+                    ⏱ {pitElapsedSeconds}s en pit
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Botón de acción PIT IN / OUT */}
+            <div>
+              {isInPit ? (
+                <button
+                  onClick={handlePitOut}
+                  disabled={isStrategyActionLoading || !isOnline}
+                  className="py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-bold text-xs flex items-center space-x-1.5 shadow cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ArrowUpCircle className="w-4 h-4" />
+                  <span>SALIDA DE BOXES</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handlePitIn}
+                  disabled={isStrategyActionLoading || !isOnline}
+                  className="py-2.5 px-3.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-mono font-bold text-xs flex items-center space-x-1.5 shadow cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ArrowDownCircle className="w-4 h-4" />
+                  <span>ENTRADA A BOXES</span>
+                </button>
+              )}
+            </div>
           </div>
-          <div className="bg-[#0a0c10] border border-gray-800/80 rounded p-2.5 space-y-1">
-            <div className="text-gray-500 text-[10px]">PERSONAL ACTIVO</div>
-            <div className="text-emerald-400 font-semibold">SIN CONFIGURAR</div>
-            <div className="text-gray-500 text-[10px]">Relevo: {lapCount} vueltas</div>
+
+          <div className="flex items-center justify-between text-[11px] font-mono text-gray-400 border-t border-gray-800/60 mt-3 pt-2">
+            <div>
+              Paradas realizadas: <strong className="text-white font-tabular">{teamStrategy?.pitStopCount || 0}</strong>
+            </div>
+            <div>
+              Última parada:{' '}
+              <strong className="text-white font-tabular">
+                {teamStrategy?.lastPitDurationMs !== undefined
+                  ? `${(teamStrategy.lastPitDurationMs / 1000).toFixed(1)}s`
+                  : '-'}
+              </strong>
+            </div>
+          </div>
+        </div>
+
+        {/* Grid: Compuestos y Personal */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 font-mono">
+          {/* Compuesto / Neumáticos */}
+          <div className="bg-[#0a0c10] border border-gray-800/80 rounded-xl p-3 space-y-2 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-gray-400 uppercase tracking-wide flex items-center space-x-1">
+                  <Disc className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Compuesto / Calzado</span>
+                </div>
+                <span className="text-[10px] text-gray-500 font-tabular">
+                  Stint: {teamStrategy?.equipmentStintLaps !== undefined ? teamStrategy.equipmentStintLaps : lapCount}v
+                </span>
+              </div>
+              <div className="mt-1 flex items-center space-x-2">
+                <span className="text-sm font-black text-white">
+                  {teamStrategy?.currentEquipment || 'HARD'}
+                </span>
+              </div>
+              <div className="text-[10px] text-gray-500 mt-1">
+                {Object.entries(teamStrategy?.equipmentTotals || { HARD: lapCount })
+                  .map(([eq, count]) => `${eq}: ${count}v`)
+                  .join(' • ')}
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsEquipmentModalOpen(true)}
+              disabled={isStrategyActionLoading || !isOnline}
+              className="w-full py-1.5 px-2.5 rounded bg-[#1a2130] hover:bg-blue-900/40 text-blue-300 border border-blue-800/50 text-[11px] font-bold flex items-center justify-center space-x-1 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Disc className="w-3 h-3 text-blue-400" />
+              <span>Cambiar Compuesto</span>
+            </button>
+          </div>
+
+          {/* Personal / Tripulación */}
+          <div className="bg-[#0a0c10] border border-gray-800/80 rounded-xl p-3 space-y-2 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-gray-400 uppercase tracking-wide flex items-center space-x-1">
+                  <User className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Piloto / Personal</span>
+                </div>
+                <span className="text-[10px] text-gray-500 font-tabular">
+                  Relevo: {teamStrategy?.personnelStintLaps !== undefined ? teamStrategy.personnelStintLaps : lapCount}v
+                </span>
+              </div>
+              <div className="mt-1 flex items-center space-x-2">
+                <span className="text-sm font-black text-emerald-400 truncate">
+                  {teamStrategy?.currentPersonnel || 'Piloto 1'}
+                </span>
+              </div>
+              <div className="text-[10px] text-gray-500 mt-1 truncate">
+                {Object.entries(teamStrategy?.personnelTotals || { 'Piloto 1': lapCount })
+                  .map(([p, count]) => `${p}: ${count}v`)
+                  .join(' • ')}
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsPersonnelModalOpen(true)}
+              disabled={isStrategyActionLoading || !isOnline}
+              className="w-full py-1.5 px-2.5 rounded bg-[#1a2130] hover:bg-emerald-900/40 text-emerald-300 border border-emerald-800/50 text-[11px] font-bold flex items-center justify-center space-x-1 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <User className="w-3 h-3 text-emerald-400" />
+              <span>Cambiar Piloto</span>
+            </button>
           </div>
         </div>
       </div>
@@ -593,6 +957,26 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
           Sin directivas ni sanciones pendientes en este momento.
         </div>
       </div>
+      {/* Modales de Cambio de Compuesto y Personal (M6) */}
+      <StrategyChangeModal
+        isOpen={isEquipmentModalOpen}
+        type="equipment"
+        teamName={team?.name || ''}
+        currentValue={teamStrategy?.currentEquipment || 'HARD'}
+        onClose={() => setIsEquipmentModalOpen(false)}
+        onSubmit={handleSubmitEquipment}
+        isLoading={isStrategyActionLoading}
+      />
+
+      <StrategyChangeModal
+        isOpen={isPersonnelModalOpen}
+        type="personnel"
+        teamName={team?.name || ''}
+        currentValue={teamStrategy?.currentPersonnel || 'Piloto 1'}
+        onClose={() => setIsPersonnelModalOpen(false)}
+        onSubmit={handleSubmitPersonnel}
+        isLoading={isStrategyActionLoading}
+      />
     </div>
   );
 };

@@ -34,6 +34,7 @@ export interface SessionModel {
   participatingTeamIds: string[];
   status: SessionStatus;
   startedAt?: number;
+  closedAt?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -68,6 +69,57 @@ export interface RaceAuditRecord {
   invalidationReason?: string;
 }
 
+export type PitState = 'ON_TRACK' | 'IN_PIT';
+
+export interface PitStopRecord {
+  id: string;
+  pitInTimestamp: number;
+  pitOutTimestamp?: number;
+  durationMs?: number;
+  lapNumber: number;
+}
+
+export interface EquipmentChangeRecord {
+  id: string;
+  equipment: string;
+  previousEquipment?: string;
+  lapNumber: number;
+  serverTimestamp: number;
+  actor: string;
+  reason?: string;
+}
+
+export interface PersonnelChangeRecord {
+  id: string;
+  personnel: string;
+  previousPersonnel?: string;
+  lapNumber: number;
+  serverTimestamp: number;
+  actor: string;
+  reason?: string;
+}
+
+export interface TeamStrategySummary {
+  pitState: PitState;
+  pitStopCount: number;
+  currentPitInTimestamp?: number;
+  currentPitDurationMs?: number;
+  lastPitDurationMs?: number;
+  currentEquipment: string;
+  equipmentStintLaps: number;
+  currentPersonnel: string;
+  personnelStintLaps: number;
+}
+
+export interface TeamStrategyState extends TeamStrategySummary {
+  teamId: string;
+  pitStops: PitStopRecord[];
+  equipmentTotals: Record<string, number>;
+  equipmentHistory: EquipmentChangeRecord[];
+  personnelTotals: Record<string, number>;
+  personnelHistory: PersonnelChangeRecord[];
+}
+
 export interface LeaderboardEntry {
   position: number;
   teamId: string;
@@ -77,16 +129,19 @@ export interface LeaderboardEntry {
   lastTimestampMs?: number;
   gapMs?: number;
   isFastestLap?: boolean;
+  strategy?: TeamStrategySummary;
 }
 
 export interface TimingOverview {
   sessionId: string;
   sessionStatus: SessionStatus;
   startedAt?: number;
+  closedAt?: number;
   fastestLapTeamId?: string;
   fastestLapMs?: number;
   totalLapsRecorded: number;
   leaderboard: LeaderboardEntry[];
+  teamsStrategy?: Record<string, TeamStrategyState>;
   revision: number;
   lastUpdated: string;
 }

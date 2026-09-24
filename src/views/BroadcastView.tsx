@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Tv, Radio, CheckCircle, Eye } from 'lucide-react';
 import { SystemHealth, EventModel, TeamModel, SessionModel } from '../types';
 import { useRealtimeTiming } from '../hooks/useRealtimeTiming';
+import { SessionTimerBadge } from '../components/SessionTimerBadge';
 
 interface Props {
   health?: SystemHealth | null;
@@ -51,6 +52,12 @@ export const BroadcastView: React.FC<Props> = ({ event, teams, sessions }) => {
                 <span className="px-1.5 py-0.2 bg-emerald-950 text-emerald-400 border border-emerald-800 rounded text-[10px]">
                   EN VIVO
                 </span>
+                <SessionTimerBadge
+                  startedAt={activeSession?.startedAt || timing?.startedAt}
+                  status={activeSession?.status}
+                  closedAt={activeSession?.closedAt || timing?.closedAt}
+                  variant="broadcast"
+                />
               </div>
               {fastestLapTeam && timing?.fastestLapMs && (
                 <div className="text-[11px] text-purple-400 flex items-center space-x-1">
@@ -96,8 +103,16 @@ export const BroadcastView: React.FC<Props> = ({ event, teams, sessions }) => {
                 <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
                 <span>OBS STREAM OVERLAY</span>
               </div>
-              <div className="text-sm font-bold text-white uppercase truncate">
-                {activeSession?.name || 'Manga Activa'}
+              <div className="flex items-center justify-between mt-0.5">
+                <div className="text-sm font-bold text-white uppercase truncate">
+                  {activeSession?.name || 'Manga Activa'}
+                </div>
+                <SessionTimerBadge
+                  startedAt={activeSession?.startedAt || timing?.startedAt}
+                  status={activeSession?.status}
+                  closedAt={activeSession?.closedAt || timing?.closedAt}
+                  variant="broadcast"
+                />
               </div>
             </div>
             <div className="space-y-1.5">
@@ -221,6 +236,12 @@ export const BroadcastView: React.FC<Props> = ({ event, teams, sessions }) => {
                   <span className="text-[10px] text-emerald-400 bg-emerald-950/80 border border-emerald-800 px-1.5 py-0.5 rounded">
                     EN VIVO
                   </span>
+                  <SessionTimerBadge
+                    startedAt={activeSession?.startedAt || timing?.startedAt}
+                    status={activeSession?.status}
+                    closedAt={activeSession?.closedAt || timing?.closedAt}
+                    variant="broadcast"
+                  />
                 </div>
                 {fastestLapTeam && timing?.fastestLapMs && (
                   <div className="text-[11px] text-purple-400 flex items-center space-x-1.5">
