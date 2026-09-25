@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { getPersistenceStore } from '../storage/index.js';
 import { EventData, TeamData, SessionData } from '../storage/types.js';
+import { presenceManager } from '../presence.js';
 
 export const eventsRouter = Router();
 
@@ -16,7 +17,8 @@ eventsRouter.get('/event', async (_req: Request, res: Response) => {
       configured: false,
       event: null,
       teams: [],
-      sessions: []
+      sessions: [],
+      isStale: false
     });
   }
 
@@ -25,12 +27,55 @@ eventsRouter.get('/event', async (_req: Request, res: Response) => {
     store.getSessions(event.id)
   ]);
 
+  // Regla de inactividad de 6 horas confirmada mediante latidos (heartbeats) de presencia
+  const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+  const now = Date.now();
+  const activeDeviceCount = presenceManager.getActiveOnlineCount();
+  const hasLiveHeartbeats = activeDeviceCount > 0;
+
+  // Si hay dispositivos enviando latidos activos, el evento NUNCA es considerado inactivo
+  const eventUpdatedTime = new Date(event.updatedAt).getTime();
+  const isStale = !hasLiveHeartbeats && Boolean(eventUpdatedTime && (now - eventUpdatedTime > SIX_HOURS_MS));
+
+  // Si no hay dispositivos conectados con latido activo Y la sesión no ha tenido actividad en > 6h,
+  // se cierra a TIMING_CLOSED para no mantener relojes ficticios
+  if (!hasLiveHeartbeats) {
+    for (const s of sessions) {
+      if (s.status === 'RUNNING' && s.startedAt && (now - s.startedAt > SIX_HOURS_MS)) {
+        const laps = await store.getLaps(s.id);
+        const validLaps = laps.filter(l => l.isValid);
+        const lastLapTime = validLaps.length > 0 ? Math.max(...validLaps.map(l => l.serverTimestamp)) : s.startedAt;
+        if (now - lastLapTime > SIX_HOURS_MS) {
+          s.status = 'TIMING_CLOSED';
+          s.closedAt = now;
+          s.updatedAt = new Date().toISOString();
+          await store.saveSession(s);
+        }
+      }
+    }
+  }
+
   return res.json({
     ok: true,
     configured: true,
     event,
     teams,
-    sessions
+    sessions,
+    isStale
+  });
+});
+
+// DELETE /api/event - Eliminar evento actual y reiniciar estado
+eventsRouter.delete('/event', async (_req: Request, res: Response) => {
+  const store = getPersistenceStore();
+  await store.clearAll('RESET_PITWALL_CONFIRM');
+
+  return res.json({
+    ok: true,
+    message: 'Evento eliminado y plataforma reiniciada exitosamente.',
+    event: null,
+    teams: [],
+    sessions: []
   });
 });
 
@@ -107,7 +152,7 @@ eventsRouter.post('/teams', async (req: Request, res: Response) => {
     });
   }
 
-  const { id, name, shortName, color, number, kartName } = req.body;
+  const { id, name, shortName, color, number, kartName, pilots } = req.body;
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({
@@ -131,6 +176,10 @@ eventsRouter.post('/teams', async (req: Request, res: Response) => {
   // Generar token único para el acceso de escudería (M2 forward-compatible)
   const token = existingTeam?.token || `token-${crypto.randomBytes(8).toString('hex')}`;
 
+  const cleanedPilots: string[] = Array.isArray(pilots)
+    ? pilots.map((p: unknown) => String(p).trim()).filter((p: string) => p.length > 0)
+    : (existingTeam?.pilots || []);
+
   const team: TeamData = {
     id: targetId,
     eventId: event.id,
@@ -140,6 +189,7 @@ eventsRouter.post('/teams', async (req: Request, res: Response) => {
     number: number !== undefined && number !== null && !isNaN(Number(number)) ? Number(number) : undefined,
     kartName: kartName ? String(kartName).trim() : undefined,
     token,
+    pilots: cleanedPilots,
     createdAt: existingTeam?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -151,6 +201,40 @@ eventsRouter.post('/teams', async (req: Request, res: Response) => {
   return res.status(existingTeam ? 200 : 201).json({
     ok: true,
     message: existingTeam ? 'Escudería actualizada correctamente.' : 'Escudería registrada exitosamente.',
+    team,
+    teams: updatedTeams
+  });
+});
+
+// PUT /api/teams/:id/pilots - Actualizar lista de pilotos de una escudería (antes o durante la sesión)
+eventsRouter.put('/teams/:id/pilots', async (req: Request, res: Response) => {
+  const store = getPersistenceStore();
+  const event = await store.getEvent();
+  if (!event) {
+    return res.status(404).json({ ok: false, error: { message: 'Evento no encontrado.' } });
+  }
+
+  const teamId = req.params.id;
+  const { pilots } = req.body;
+
+  if (!Array.isArray(pilots)) {
+    return res.status(400).json({ ok: false, error: { message: 'La lista de pilotos debe ser un array de nombres.' } });
+  }
+
+  const teams = await store.getTeams(event.id);
+  const team = teams.find(t => t.id === teamId);
+  if (!team) {
+    return res.status(404).json({ ok: false, error: { message: 'Escudería no encontrada.' } });
+  }
+
+  team.pilots = pilots.map((p: unknown) => String(p).trim()).filter((p: string) => p.length > 0);
+  team.updatedAt = new Date().toISOString();
+  await store.saveTeam(team);
+
+  const updatedTeams = await store.getTeams(event.id);
+  return res.json({
+    ok: true,
+    message: 'Lista de pilotos de la escudería actualizada exitosamente.',
     team,
     teams: updatedTeams
   });

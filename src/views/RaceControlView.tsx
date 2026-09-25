@@ -18,11 +18,14 @@ import {
   Flag,
   Zap,
   PlusCircle,
-  Wrench
+  Wrench,
+  User,
+  AlertTriangle
 } from 'lucide-react';
 import { EventModel, TeamModel, SessionModel, SystemHealth, PresenceOverview } from '../types';
 import { EventConfigModal } from '../components/EventConfigModal';
 import { TeamFormModal } from '../components/TeamFormModal';
+import { TeamPilotsModal } from '../components/TeamPilotsModal';
 import { SessionFormModal } from '../components/SessionFormModal';
 import { RaceAuditAndLapsPanel } from '../components/RaceAuditAndLapsPanel';
 import { ManualLapModal } from '../components/ManualLapModal';
@@ -71,6 +74,8 @@ export const RaceControlView: React.FC<Props> = ({
   const [teamToDelete, setTeamToDelete] = useState<TeamModel | null>(null);
   const [teamToRegenerate, setTeamToRegenerate] = useState<TeamModel | null>(null);
   const [deviceToKick, setDeviceToKick] = useState<{ sessionId: string; label: string } | null>(null);
+  const [eventToDelete, setEventToDelete] = useState<boolean>(false);
+  const [teamForPilotsModal, setTeamForPilotsModal] = useState<TeamModel | null>(null);
   const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
@@ -144,6 +149,26 @@ export const RaceControlView: React.FC<Props> = ({
     } finally {
       setIsActionLoading(false);
       setDeviceToKick(null);
+    }
+  };
+
+  // Eliminar evento y reiniciar plataforma
+  const executeDeleteEvent = async () => {
+    setIsActionLoading(true);
+    try {
+      const res = await fetch('/api/event', { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setActionFeedback('Evento eliminado y plataforma reiniciada exitosamente.');
+        onRefreshData();
+      } else {
+        setActionFeedback(data.error?.message || 'Error al eliminar el evento.');
+      }
+    } catch {
+      setActionFeedback('Error de comunicación al eliminar el evento.');
+    } finally {
+      setIsActionLoading(false);
+      setEventToDelete(false);
     }
   };
 
@@ -453,8 +478,38 @@ export const RaceControlView: React.FC<Props> = ({
             <Trophy className="w-3.5 h-3.5 text-cyan-400" />
             <span>{event ? 'Editar Evento' : 'Configurar Evento'}</span>
           </button>
+
+          {event && (
+            <button
+              id="btn-delete-event"
+              onClick={() => setEventToDelete(true)}
+              className="px-3.5 py-2 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-500/50 text-rose-300 font-bold transition-colors cursor-pointer flex items-center space-x-1.5 shadow"
+              title="Eliminar el evento actual y reiniciar la plataforma a limpio"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>Eliminar Evento</span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Aviso de Inactividad de Evento (> 6 Horas) */}
+      {event && (Date.now() - new Date(event.updatedAt).getTime() > 6 * 3600 * 1000) && (
+        <div className="p-3.5 bg-amber-950/50 border border-amber-500/50 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono text-amber-200 shadow">
+          <div className="flex items-center space-x-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <span>
+              Aviso de inactividad: Este evento no ha registrado actividad en más de 6 horas. Puede continuar operándolo o eliminarlo para iniciar una nueva jornada.
+            </span>
+          </div>
+          <button
+            onClick={() => setEventToDelete(true)}
+            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-bold font-mono text-xs rounded transition-colors cursor-pointer flex-shrink-0 shadow"
+          >
+            Reiniciar Evento
+          </button>
+        </div>
+      )}
 
       {/* Banner de retroalimentación de acciones */}
       {actionFeedback && (
@@ -1018,10 +1073,28 @@ export const RaceControlView: React.FC<Props> = ({
                             <div className="text-[11px] text-gray-500 font-mono truncate">
                               {t.kartName ? `Kart: ${t.kartName}` : 'Kart estándar'}
                             </div>
+                            {t.pilots && t.pilots.length > 0 ? (
+                              <div className="text-[10px] text-cyan-300 font-mono flex items-center space-x-1 mt-0.5 truncate">
+                                <User className="w-3 h-3 text-cyan-400 flex-shrink-0" />
+                                <span className="truncate">Pilotos: {t.pilots.join(', ')}</span>
+                              </div>
+                            ) : (
+                              <div className="text-[10px] text-gray-500 font-mono italic mt-0.5">
+                                Sin pilotos registrados
+                              </div>
+                            )}
                           </div>
                         </div>
 
                         <div className="flex items-center space-x-1 flex-shrink-0">
+                          <button
+                            id={`btn-pilots-team-${t.id}`}
+                            onClick={() => setTeamForPilotsModal(t)}
+                            className="p-1.5 text-gray-400 hover:text-cyan-400 hover:bg-gray-800 rounded transition-colors cursor-pointer"
+                            title="Gestionar pilotos registrados"
+                          >
+                            <User className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             id={`btn-edit-team-${t.id}`}
                             onClick={() => {
@@ -1463,6 +1536,7 @@ export const RaceControlView: React.FC<Props> = ({
             ? timing?.teamsStrategy?.[strategyChangeTeamId!]?.currentEquipment || 'HARD'
             : timing?.teamsStrategy?.[strategyChangeTeamId!]?.currentPersonnel || 'Piloto 1'
         }
+        availablePilots={teams.find((t) => t.id === strategyChangeTeamId)?.pilots}
         onClose={() => {
           setStrategyChangeType(null);
           setStrategyChangeTeamId(null);
@@ -1473,6 +1547,40 @@ export const RaceControlView: React.FC<Props> = ({
             : handleRaceControlPersonnelSubmit
         }
         isLoading={isStrategySubmitting}
+      />
+
+      {/* Modal de Gestión de Pilotos Registrados (Pre-Sesión) */}
+      {teamForPilotsModal && (
+        <TeamPilotsModal
+          team={teamForPilotsModal}
+          onPilotsUpdated={(updatedTeam, _allTeams) => {
+            setActionFeedback(`Lista de pilotos de ${updatedTeam.name} actualizada.`);
+            setTeamForPilotsModal(null);
+            onRefreshData();
+          }}
+          onClose={() => setTeamForPilotsModal(null)}
+        />
+      )}
+
+      {/* Diálogo de Confirmación: Eliminar Evento y Reiniciar Plataforma */}
+      <ConfirmModal
+        isOpen={eventToDelete}
+        title="Eliminar Evento y Reiniciar Plataforma"
+        message={
+          event
+            ? `¿Está seguro de que desea eliminar el evento "${event.name}"?`
+            : '¿Desea reiniciar la plataforma a limpio?'
+        }
+        details={[
+          'Se eliminarán todas las escuderías, mangas, vueltas y auditoría asociadas a este evento.',
+          'La plataforma quedará completamente limpia lista para una nueva jornada deportiva.'
+        ]}
+        confirmText="Eliminar Todo y Reiniciar"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={isActionLoading}
+        onConfirm={executeDeleteEvent}
+        onCancel={() => setEventToDelete(false)}
       />
     </div>
   );

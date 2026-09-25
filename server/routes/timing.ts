@@ -75,18 +75,26 @@ export async function computeTimingOverview(sessionId: string) {
     });
   }
 
-  const leaderBestLap = teamEntries[0]?.bestLapMs;
-  const leaderTimestamp = teamEntries[0]?.lastTimestampMs;
+  const leaderEntry = teamEntries[0];
+  const leaderLapCount = leaderEntry?.lapCount || 0;
+  const leaderBestLap = leaderEntry?.bestLapMs;
+  const leaderTimestamp = leaderEntry?.lastTimestampMs;
+
   const leaderboard = teamEntries.map((entry, idx) => {
     const position = idx + 1;
+    const lapsBehind = leaderLapCount > entry.lapCount ? leaderLapCount - entry.lapCount : 0;
     let gapMs: number | undefined = undefined;
+
     if (position > 1) {
       if (session.type === 'qualifying') {
         if (leaderBestLap !== undefined && entry.bestLapMs !== undefined && entry.bestLapMs > leaderBestLap) {
           gapMs = entry.bestLapMs - leaderBestLap;
         }
-      } else if (leaderTimestamp && entry.lastTimestampMs) {
-        gapMs = entry.lastTimestampMs - leaderTimestamp;
+      } else if (lapsBehind === 0 && leaderTimestamp && entry.lastTimestampMs) {
+        const diff = entry.lastTimestampMs - leaderTimestamp;
+        if (diff > 0) {
+          gapMs = diff;
+        }
       }
     }
 
@@ -100,6 +108,7 @@ export async function computeTimingOverview(sessionId: string) {
       bestLapMs: entry.bestLapMs,
       lastTimestampMs: entry.lastTimestampMs,
       gapMs: gapMs && gapMs > 0 ? gapMs : undefined,
+      lapsBehind: lapsBehind > 0 ? lapsBehind : undefined,
       isFastestLap: fastestLapTeamId === entry.teamId && (entry.bestLapMs || 0) > 0,
       // Medición neutral de estrategia proyectada (M6)
       strategy: strat

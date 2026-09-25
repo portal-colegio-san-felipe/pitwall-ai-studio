@@ -26,6 +26,7 @@ export interface TeamData {
   number?: number;
   kartName?: string;
   token: string;
+  pilots?: string[];
   createdAt: string;
   updatedAt: string;
 }

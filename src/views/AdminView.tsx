@@ -97,7 +97,7 @@ export const AdminView: React.FC<Props> = ({ health, onRefreshHealth }) => {
           </div>
         )}
 
-        <div className="pt-2">
+        <div className="pt-2 flex flex-wrap gap-2">
           <button
             id="btn-admin-test-storage"
             onClick={handleTestStorage}
@@ -106,6 +106,28 @@ export const AdminView: React.FC<Props> = ({ health, onRefreshHealth }) => {
           >
             <RefreshCw className={`w-3.5 h-3.5 ${testingStorage ? 'animate-spin' : ''}`} />
             <span>Ejecutar Prueba de Escritura / Lectura de Persistencia</span>
+          </button>
+
+          <button
+            id="btn-admin-reset-storage"
+            onClick={async () => {
+              if (window.confirm('¿Está seguro de reiniciar la persistencia y eliminar todos los datos de eventos y sesiones?')) {
+                setTestingStorage(true);
+                try {
+                  const res = await fetch('/api/event', { method: 'DELETE' });
+                  if (res.ok) {
+                    setStorageFeedback('Base de datos reiniciada a limpio con éxito.');
+                    onRefreshHealth();
+                  }
+                } finally {
+                  setTestingStorage(false);
+                }
+              }
+            }}
+            disabled={testingStorage}
+            className="flex items-center space-x-2 px-4 py-2 bg-rose-950/80 hover:bg-rose-900 border border-rose-600/60 text-rose-300 disabled:opacity-50 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+          >
+            <span>Reiniciar Base de Datos a Limpio</span>
           </button>
         </div>
       </div>

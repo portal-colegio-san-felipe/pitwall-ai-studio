@@ -5,6 +5,7 @@ import { eventsRouter } from './events.js';
 import { presenceRouter } from './presence.js';
 import { timingRouter } from './timing.js';
 import { strategyRouter } from './strategy.js';
+import { stewardingRouter } from './stewarding.js';
 
 export const apiRouter = Router();
 
@@ -14,6 +15,7 @@ apiRouter.use(eventsRouter);
 apiRouter.use(presenceRouter);
 apiRouter.use(timingRouter);
 apiRouter.use(strategyRouter);
+apiRouter.use(stewardingRouter);
 
 // Manejador para rutas /api no encontradas
 apiRouter.use('*', (_req, res) => {

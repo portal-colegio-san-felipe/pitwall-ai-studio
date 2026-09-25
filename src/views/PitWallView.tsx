@@ -881,12 +881,35 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
                   .map(([p, count]) => `${p}: ${count}v`)
                   .join(' • ')}
               </div>
+              {team?.pilots && team.pilots.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-gray-800/60">
+                  <span className="text-[10px] text-gray-400 mr-1 flex items-center">Roster:</span>
+                  {team.pilots.map((p) => {
+                    const isCurrent = (teamStrategy?.currentPersonnel || 'Piloto 1') === p;
+                    return (
+                      <button
+                        key={p}
+                        onClick={() => handleSubmitPersonnel(p, 'Relevo rápido de piloto')}
+                        disabled={isStrategyActionLoading || !isOnline || isCurrent}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
+                          isCurrent
+                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-600 font-bold'
+                            : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                        }`}
+                        title={isCurrent ? 'Piloto en pista' : `Relevo a ${p}`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <button
               onClick={() => setIsPersonnelModalOpen(true)}
               disabled={isStrategyActionLoading || !isOnline}
-              className="w-full py-1.5 px-2.5 rounded bg-[#1a2130] hover:bg-emerald-900/40 text-emerald-300 border border-emerald-800/50 text-[11px] font-bold flex items-center justify-center space-x-1 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-1.5 px-2.5 rounded bg-[#1a2130] hover:bg-emerald-900/40 text-emerald-300 border border-emerald-800/50 text-[11px] font-bold flex items-center justify-center space-x-1 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-2"
             >
               <User className="w-3 h-3 text-emerald-400" />
               <span>Cambiar Piloto</span>
@@ -973,6 +996,7 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
         type="personnel"
         teamName={team?.name || ''}
         currentValue={teamStrategy?.currentPersonnel || 'Piloto 1'}
+        availablePilots={team?.pilots}
         onClose={() => setIsPersonnelModalOpen(false)}
         onSubmit={handleSubmitPersonnel}
         isLoading={isStrategyActionLoading}

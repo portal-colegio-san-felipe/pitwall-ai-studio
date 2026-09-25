@@ -262,25 +262,36 @@ export const BroadcastView: React.FC<Props> = ({ event, teams, sessions }) => {
                     return (
                       <div
                         key={item.teamId}
-                        className="bg-[#07090e] border border-gray-800 rounded p-2 flex items-center justify-between text-xs"
+                        className={`border rounded p-2 flex items-center justify-between text-xs ${
+                          item.isDisqualified
+                            ? 'bg-rose-950/40 border-rose-800'
+                            : 'bg-[#07090e] border-gray-800'
+                        }`}
                       >
                         <div className="flex items-center space-x-2 truncate">
                           <span
                             className={`font-black px-1.5 py-0.5 rounded text-[10px] ${
-                              item.position === 1
+                              item.isDisqualified
+                                ? 'bg-rose-900 text-rose-200'
+                                : item.position === 1
                                 ? 'bg-amber-400 text-black'
                                 : 'bg-gray-800 text-white'
                             }`}
                           >
-                            P{item.position}
+                            {item.isDisqualified ? 'DQ' : `P${item.position}`}
                           </span>
                           <span
                             className="w-2 h-2 rounded-full flex-shrink-0"
                             style={{ backgroundColor: teamInfo?.color || '#3b82f6' }}
                           />
-                          <span className="font-bold text-gray-200 truncate">
+                          <span className={`font-bold truncate ${item.isDisqualified ? 'text-gray-400 line-through' : 'text-gray-200'}`}>
                             {teamInfo?.name || item.teamId}
                           </span>
+                          {item.totalPenaltyMs !== undefined && item.totalPenaltyMs > 0 && !item.isDisqualified && (
+                            <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800 font-mono">
+                              +{(item.totalPenaltyMs / 1000).toFixed(0)}s
+                            </span>
+                          )}
                         </div>
                         <div className="text-right flex-shrink-0 pl-1">
                           <div className="text-[11px] text-cyan-400 font-bold">
@@ -309,17 +320,26 @@ export const BroadcastView: React.FC<Props> = ({ event, teams, sessions }) => {
                   return (
                     <div
                       key={item.teamId}
-                      className="flex items-center justify-between bg-[#07090e] px-2 py-1 rounded text-xs"
+                      className={`flex items-center justify-between px-2 py-1 rounded text-xs ${
+                        item.isDisqualified ? 'bg-rose-950/40 border border-rose-900/60' : 'bg-[#07090e]'
+                      }`}
                     >
                       <div className="flex items-center space-x-1.5 truncate">
-                        <span className="font-black text-amber-400 w-4 text-[10px]">P{item.position}</span>
+                        <span className={`font-black w-5 text-[10px] ${item.isDisqualified ? 'text-rose-400' : 'text-amber-400'}`}>
+                          {item.isDisqualified ? 'DQ' : `P${item.position}`}
+                        </span>
                         <span
                           className="w-2 h-2 rounded-full flex-shrink-0"
                           style={{ backgroundColor: teamInfo?.color || '#3b82f6' }}
                         />
-                        <span className="font-bold text-gray-200 truncate text-[11px]">
+                        <span className={`font-bold truncate text-[11px] ${item.isDisqualified ? 'text-gray-400 line-through' : 'text-gray-200'}`}>
                           {teamInfo?.name || item.teamId}
                         </span>
+                        {item.totalPenaltyMs !== undefined && item.totalPenaltyMs > 0 && !item.isDisqualified && (
+                          <span className="text-[8px] px-1 bg-amber-950 text-amber-300 rounded font-mono">
+                            +{(item.totalPenaltyMs / 1000).toFixed(0)}s
+                          </span>
+                        )}
                       </div>
                       <span className="text-purple-400 text-[10px] font-bold">
                         {formatLapTime(item.bestLapMs)}

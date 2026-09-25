@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Flag, Plus, Check, AlertCircle } from 'lucide-react';
+import { Flag, Plus, Check, AlertCircle, User, X } from 'lucide-react';
 import { TeamModel } from '../types';
 
 interface Props {
@@ -27,8 +27,26 @@ export const TeamFormModal: React.FC<Props> = ({ initialTeam, onTeamSaved, onCan
   const [color, setColor] = useState(initialTeam?.color || PRESET_COLORS[0]);
   const [number, setNumber] = useState(initialTeam?.number !== undefined ? String(initialTeam.number) : '');
   const [kartName, setKartName] = useState(initialTeam?.kartName || '');
+  const [pilots, setPilots] = useState<string[]>(initialTeam?.pilots || []);
+  const [newPilotName, setNewPilotName] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleAddPilot = () => {
+    const trimmed = newPilotName.trim();
+    if (!trimmed) return;
+    if (pilots.some(p => p.toLowerCase() === trimmed.toLowerCase())) {
+      setError(`El piloto "${trimmed}" ya está registrado en este equipo.`);
+      return;
+    }
+    setPilots([...pilots, trimmed]);
+    setNewPilotName('');
+    setError(null);
+  };
+
+  const handleRemovePilot = (indexToRemove: number) => {
+    setPilots(pilots.filter((_, idx) => idx !== indexToRemove));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +68,8 @@ export const TeamFormModal: React.FC<Props> = ({ initialTeam, onTeamSaved, onCan
           shortName: shortName.trim() || undefined,
           color,
           number: number ? Number(number) : undefined,
-          kartName: kartName.trim() || undefined
+          kartName: kartName.trim() || undefined,
+          pilots
         })
       });
 
@@ -161,6 +180,72 @@ export const TeamFormModal: React.FC<Props> = ({ initialTeam, onTeamSaved, onCan
               placeholder="Ej: Kart Alfa / Chasis 02"
               className="w-full bg-[#0a0c10] border border-gray-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
             />
+          </div>
+
+          {/* Pilotos Registrados (Pre-sesión) */}
+          <div className="space-y-2 p-3 bg-[#0a0c10] border border-gray-800 rounded-xl">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-mono text-gray-300 uppercase tracking-wider flex items-center space-x-1.5">
+                <User className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Pilotos del Equipo (Registro Pre-Sesión)</span>
+              </label>
+              <span className="text-[10px] font-mono text-gray-500">{pilots.length} registrados</span>
+            </div>
+            
+            <p className="text-[11px] text-gray-400 font-mono">
+              Registre a los alumnos / pilotos que integran la escudería antes del inicio de la manga.
+            </p>
+
+            <div className="flex items-center space-x-2">
+              <input
+                id="input-pilot-name"
+                type="text"
+                value={newPilotName}
+                onChange={(e) => setNewPilotName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddPilot();
+                  }
+                }}
+                placeholder="Nombre del piloto (ej: Lucas, Sofía, Mateo)"
+                className="flex-1 bg-[#131720] border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 font-medium"
+              />
+              <button
+                type="button"
+                id="btn-add-pilot"
+                onClick={handleAddPilot}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold font-mono transition-colors cursor-pointer flex items-center space-x-1"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Añadir</span>
+              </button>
+            </div>
+
+            {pilots.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {pilots.map((p, idx) => (
+                  <span
+                    key={`${p}-${idx}`}
+                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-blue-950/60 border border-blue-500/40 text-blue-200 text-xs font-mono"
+                  >
+                    <span>{p}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePilot(idx)}
+                      className="text-blue-400 hover:text-white transition-colors cursor-pointer ml-1"
+                      title={`Eliminar ${p}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[11px] font-mono text-gray-500 italic py-0.5">
+                No hay pilotos registrados aún. Puede agregarlos ahora o durante la estrategia.
+              </div>
+            )}
           </div>
 
           <div>

@@ -45,11 +45,12 @@ El sistema opera bajo un modelo de **servidor autoritativo central** con cinco s
 2. Si el evento no existe, pulse **"Configurar Evento"**.
 3. Ingrese el nombre oficial (ej. *Gran Premio Escolar 2026*), edición y nombre del director responsable.
 
-### Paso 2: Dar de Alta Escuderías y Compartir Enlaces
+### Paso 2: Dar de Alta Escuderías, Registrar Pilotos y Compartir Enlaces
 1. En la sección **Escuderías Registradas**, pulse **"+ Registrar Escudería"**.
 2. Ingrese el nombre del equipo, sigla (2-4 caracteres), color del kart, dorsal y modelo del kart.
-3. Copie el **enlace de acceso único** generado para cada equipo pulsando el icono de enlace/copiar y compártalo con los alumnos u operadores de dicho equipo.
-4. *Seguridad*: Si un enlace se comparte erróneamente, pulse **"Regenerar Token"** para revocar el acceso anterior de forma inmediata.
+3. **Registro Previo de Pilotos**: En el campo *"Pilotos del Equipo"*, añada los nombres de los alumnos que correrán (ej. Lucas, Sofía, Mateo). También puede pulsar el botón **"Pilotos"** en la tarjeta de cualquier escudería para actualizar la alineación de pilotos en cualquier instante previo al inicio.
+4. Copie el **enlace de acceso único** generado para cada equipo pulsando el icono de enlace/copiar y compártalo con los alumnos u operadores de dicho equipo.
+5. *Seguridad*: Si un enlace se comparte erróneamente, pulse **"Regenerar Token"** para revocar el acceso anterior de forma inmediata.
 
 ### Paso 3: Configurar Rondas o Sesiones
 1. En **Sesiones y Mangas**, pulse **"+ Nueva Ronda / Sesión"**.
@@ -60,6 +61,10 @@ El sistema opera bajo un modelo de **servidor autoritativo central** con cinco s
 1. Revise el panel **Conectividad y Presencia de Dispositivos**.
 2. Verifique que cada equipo tenga al menos un dispositivo en estado **EN LÍNEA**.
 3. Si un dispositivo ajeno o no autorizado intenta operar, utilice el botón **"Desconectar" (Kick)** para expulsar la sesión específica de dicho dispositivo sin afectar al resto del equipo.
+
+### Paso 5: Limpieza, Cierre y Reinicio de Eventos
+1. **Regla de Inactividad de 6 Horas**: Si una sesión queda en estado `RUNNING` sin cruces ni actividad durante más de 6 horas (por ejemplo, tras pruebas de desarrollo o abandono fortuito), el servidor la cierra automáticamente (`TIMING_CLOSED`) para evitar que el reloj siga corriendo de forma ficticia.
+2. **Eliminación y Reinicio**: En la barra superior de Dirección de Carrera, el botón **"Eliminar Evento"** permite reiniciar la plataforma por completo con confirmación previa, eliminando mangas y escuderías para comenzar una nueva jornada deportiva limpia.
 
 ---
 
@@ -78,12 +83,16 @@ El sistema opera bajo un modelo de **servidor autoritativo central** con cinco s
 
 ---
 
-## 4. Guía para Pantalla Gigante (Display)
+## 4. Guía para Pantalla Gigante (Display) y Comportamiento de Posiciones
 
 1. En la computadora conectada a la pantalla gigante o proyector, acceda a la pestaña **Pantalla 16:9**.
 2. Pulse el botón **"PANTALLA COMPLETA"** situado en la esquina superior derecha del marco.
 3. El sistema solicitará al navegador la entrada en modo inmersivo nativo (F11), eliminando barras de pestañas, marcadores y elementos de navegación web.
-4. Para salir del modo inmersivo en cualquier momento, presione la tecla `Escape` o haga clic en el botón de salida flotante.
+4. **Comportamiento de Posiciones y Adelantamientos (Surpassing)**:
+   - La tabla se reordena estrictamente en tiempo real de acuerdo a la clasificación autoritativa del servidor (P1 líder arriba, seguido de P2, P3, etc.).
+   - Al producirse un adelantamiento en pista (un kart completa la vuelta antes que el rival que le precedía), la fila del kart sube de posición de inmediato, señalando la ganancia con un indicador visual verde.
+   - La columna de diferencia muestra la brecha temporal respecto al líder para karts en la misma vuelta (`+X.XXXs`) o el número de vueltas perdidas (`+1 Vta`, `+2 Vtas`) para karts doblados.
+5. Para salir del modo inmersivo en cualquier momento, presione la tecla `Escape` o haga clic en el botón de salida flotante.
 
 ---
 

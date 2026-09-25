@@ -18,6 +18,7 @@ export interface TeamModel {
   number?: number;
   kartName?: string;
   token: string;
+  pilots?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -128,6 +129,7 @@ export interface LeaderboardEntry {
   bestLapMs?: number;
   lastTimestampMs?: number;
   gapMs?: number;
+  lapsBehind?: number;
   isFastestLap?: boolean;
   strategy?: TeamStrategySummary;
 }
@@ -152,6 +154,7 @@ export interface EventStateResponse {
   event: EventModel | null;
   teams: TeamModel[];
   sessions: SessionModel[];
+  isStale?: boolean;
 }
 
 export interface SystemHealth {

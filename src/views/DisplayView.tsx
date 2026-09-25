@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trophy, Maximize, Minimize, Flag, Clock, Zap } from 'lucide-react';
+import { Trophy, Maximize, Minimize, Flag, Clock, Zap, ArrowUp, ArrowDown, User, Disc } from 'lucide-react';
 import { SystemHealth, EventModel, TeamModel, SessionModel } from '../types';
 import { usePresence } from '../hooks/usePresence';
 import { useRealtimeTiming } from '../hooks/useRealtimeTiming';
@@ -27,6 +27,34 @@ export const DisplayView: React.FC<Props> = ({
 
   const activeSession = sessions.find((s) => s.status === 'RUNNING') || sessions[0];
   const { timing, isLive } = useRealtimeTiming(activeSession?.id);
+
+  // Registro del histórico de posiciones para detectar sobrepasos (surpassing)
+  const prevPositionsRef = useRef<Record<string, number>>({});
+  const [positionDeltas, setPositionDeltas] = useState<Record<string, 'up' | 'down' | 'same'>>({});
+
+  useEffect(() => {
+    if (!timing?.leaderboard || timing.leaderboard.length === 0) return;
+
+    const deltas: Record<string, 'up' | 'down' | 'same'> = {};
+    timing.leaderboard.forEach((entry) => {
+      const prev = prevPositionsRef.current[entry.teamId];
+      if (prev !== undefined && prev !== entry.position) {
+        deltas[entry.teamId] = entry.position < prev ? 'up' : 'down';
+      } else {
+        deltas[entry.teamId] = 'same';
+      }
+      prevPositionsRef.current[entry.teamId] = entry.position;
+    });
+
+    setPositionDeltas(deltas);
+
+    // Limpiar indicación de sobrepaso visual tras 4 segundos
+    const timer = setTimeout(() => {
+      setPositionDeltas({});
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [timing?.leaderboard]);
 
   // Alternar pantalla completa
   const toggleFullscreen = async () => {
@@ -79,6 +107,20 @@ export const DisplayView: React.FC<Props> = ({
     const millis = Math.floor((ms % 1000));
     return `${minutes}:${seconds.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
   };
+
+  // Construir filas estrictamente ordenadas por la posición autoritativa en vivo (M3 / M4 / M5)
+  const orderedRows = (timing?.leaderboard && timing.leaderboard.length > 0)
+    ? timing.leaderboard
+        .map((entry) => {
+          const team = teams.find((t) => t.id === entry.teamId);
+          return team ? { team, stats: entry, pos: entry.position } : null;
+        })
+        .filter((r): r is { team: TeamModel; stats: typeof timing.leaderboard[0]; pos: number } => r !== null)
+    : teams.map((t, idx) => ({
+        team: t,
+        stats: undefined,
+        pos: idx + 1
+      }));
 
   return (
     <div
@@ -197,38 +239,52 @@ export const DisplayView: React.FC<Props> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/60 text-xs sm:text-sm">
-                  {teams.map((t, idx) => {
-                    const stats = timing?.leaderboard.find((entry) => entry.teamId === t.id);
+                  {orderedRows.map(({ team: t, stats, pos }) => {
                     const isFastestOfSession = timing?.fastestLapTeamId === t.id && (stats?.bestLapMs || 0) > 0;
-                    const pos = idx + 1;
+                    const delta = positionDeltas[t.id];
+                    const strat = timing?.teamsStrategy?.[t.id] || stats?.strategy;
+                    const activePilot = strat?.currentPersonnel || (t.pilots && t.pilots.length > 0 ? t.pilots[0] : undefined);
+                    const activeEq = strat?.currentEquipment;
 
                     return (
                       <tr
                         key={t.id}
-                        className={`transition-colors ${
+                        className={`transition-all duration-300 ${
                           pos === 1
                             ? 'bg-amber-950/20 hover:bg-amber-950/30'
                             : 'hover:bg-gray-800/20'
-                        }`}
+                        } ${delta === 'up' ? 'bg-emerald-950/30 ring-1 ring-emerald-500/50' : delta === 'down' ? 'bg-rose-950/20' : ''}`}
                       >
-                        {/* Posición */}
+                        {/* Posición con indicador de adelantamiento */}
                         <td className="py-3 px-3 sm:px-4 text-center font-black">
-                          <span
-                            className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-bold ${
-                              pos === 1
-                                ? 'bg-amber-500 text-black shadow'
-                                : pos === 2
-                                ? 'bg-gray-300 text-black'
-                                : pos === 3
-                                ? 'bg-amber-700 text-white'
-                                : 'bg-gray-800 text-gray-400'
-                            }`}
-                          >
-                            {pos}
-                          </span>
+                          <div className="flex items-center justify-center space-x-1">
+                            <span
+                              className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-bold transition-all ${
+                                pos === 1
+                                  ? 'bg-amber-500 text-black shadow'
+                                  : pos === 2
+                                  ? 'bg-gray-300 text-black'
+                                  : pos === 3
+                                  ? 'bg-amber-700 text-white'
+                                  : 'bg-gray-800 text-gray-400'
+                              }`}
+                            >
+                              {pos}
+                            </span>
+                            {delta === 'up' && (
+                              <span title="Posición ganada" className="inline-flex items-center">
+                                <ArrowUp className="w-3.5 h-3.5 text-emerald-400 animate-bounce" />
+                              </span>
+                            )}
+                            {delta === 'down' && (
+                              <span title="Posición perdida" className="inline-flex items-center">
+                                <ArrowDown className="w-3.5 h-3.5 text-rose-400" />
+                              </span>
+                            )}
+                          </div>
                         </td>
 
-                        {/* Escudería */}
+                        {/* Escudería y Piloto */}
                         <td className="py-3 px-3 sm:px-4 font-sans">
                           <div className="flex items-center space-x-2.5">
                             <span
@@ -236,14 +292,36 @@ export const DisplayView: React.FC<Props> = ({
                               style={{ backgroundColor: t.color || '#3b82f6' }}
                             />
                             <div className="truncate">
-                              <span className="font-bold text-white tracking-wide text-sm sm:text-base">
-                                {t.name}
-                              </span>
-                              {t.kartName && (
-                                <span className="text-[10px] font-mono text-gray-500 ml-2">
-                                  [{t.kartName}]
+                              <div className="flex items-center space-x-2">
+                                <span className="font-bold text-white tracking-wide text-sm sm:text-base">
+                                  {t.name}
                                 </span>
-                              )}
+                                {t.number !== undefined && (
+                                  <span className="text-xs font-mono font-bold px-1.5 py-0.2 bg-gray-800 text-gray-300 rounded">
+                                    #{t.number}
+                                  </span>
+                                )}
+                                {t.kartName && (
+                                  <span className="text-[10px] font-mono text-gray-500">
+                                    [{t.kartName}]
+                                  </span>
+                                )}
+                              </div>
+                              {/* Subtexto: Piloto activo y compuesto */}
+                              <div className="flex items-center space-x-2 text-[11px] font-mono text-gray-400 mt-0.5">
+                                {activePilot && (
+                                  <span className="flex items-center space-x-1 text-cyan-300">
+                                    <User className="w-3 h-3 text-cyan-400" />
+                                    <span>{activePilot}</span>
+                                  </span>
+                                )}
+                                {activeEq && (
+                                  <span className="flex items-center space-x-1 text-gray-400">
+                                    <Disc className="w-3 h-3 text-amber-400" />
+                                    <span>{activeEq}</span>
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -285,6 +363,10 @@ export const DisplayView: React.FC<Props> = ({
                         <td className="py-3 px-3 sm:px-4 text-right text-gray-400 font-tabular hidden sm:table-cell">
                           {pos === 1 ? (
                             <span className="text-emerald-400 font-bold">LÍDER</span>
+                          ) : stats?.lapsBehind && stats.lapsBehind > 0 ? (
+                            <span className="text-amber-400 font-semibold">
+                              +{stats.lapsBehind} {stats.lapsBehind === 1 ? 'Vta' : 'Vtas'}
+                            </span>
                           ) : stats?.gapMs ? (
                             `+${(stats.gapMs / 1000).toFixed(3)}s`
                           ) : (

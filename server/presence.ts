@@ -146,6 +146,17 @@ class PresenceManager {
     };
   }
 
+  getActiveOnlineCount(): number {
+    const now = Date.now();
+    let count = 0;
+    for (const session of this.sessions.values()) {
+      if (!session.isKicked && (now - session.lastSeen) <= this.HEARTBEAT_TIMEOUT_MS) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   reset(): void {
     this.sessions.clear();
   }
