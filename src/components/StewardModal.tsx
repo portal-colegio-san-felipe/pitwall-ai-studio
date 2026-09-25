@@ -10,7 +10,14 @@ import {
   History,
   Undo2
 } from 'lucide-react';
-import { TeamModel, SessionModel, TeamStewardingState } from '../types';
+import {
+  TeamModel,
+  SessionModel,
+  TeamStewardingState,
+  TimePenaltyRecord,
+  PitRequiredRecord,
+  WarningRecord
+} from '../types';
 
 interface StewardModalProps {
   isOpen: boolean;
@@ -649,7 +656,7 @@ export const StewardModal: React.FC<StewardModalProps> = ({
 
               <div className="space-y-2">
                 {/* Penalizaciones de Tiempo */}
-                {stewarding?.timePenalties.map((pen) => (
+                {stewarding?.timePenalties.map((pen: TimePenaltyRecord) => (
                   <div
                     key={pen.id}
                     className={`p-3 rounded-lg border text-xs flex items-start justify-between ${
@@ -695,7 +702,7 @@ export const StewardModal: React.FC<StewardModalProps> = ({
                 ))}
 
                 {/* Directivas Boxes (PIT_REQUIRED) */}
-                {stewarding?.pitRequiredDirectives.map((dir) => (
+                {stewarding?.pitRequiredDirectives.map((dir: PitRequiredRecord) => (
                   <div
                     key={dir.id}
                     className="p-3 rounded-lg border bg-orange-950/20 border-orange-800/60 text-xs flex items-start justify-between"
@@ -744,7 +751,7 @@ export const StewardModal: React.FC<StewardModalProps> = ({
                 ))}
 
                 {/* Advertencias */}
-                {stewarding?.warnings.map((warn) => (
+                {stewarding?.warnings.map((warn: WarningRecord) => (
                   <div
                     key={warn.id}
                     className="p-3 rounded-lg border bg-yellow-950/20 border-yellow-800/60 text-xs flex items-start justify-between"

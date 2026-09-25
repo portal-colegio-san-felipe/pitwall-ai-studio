@@ -20,7 +20,8 @@ import {
   PlusCircle,
   Wrench,
   User,
-  AlertTriangle
+  AlertTriangle,
+  Scale
 } from 'lucide-react';
 import { EventModel, TeamModel, SessionModel, SystemHealth, PresenceOverview } from '../types';
 import { EventConfigModal } from '../components/EventConfigModal';
@@ -33,6 +34,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { TeamStrategyDetailModal } from '../components/TeamStrategyDetailModal';
 import { StrategyChangeModal } from '../components/StrategyChangeModal';
 import { SessionTimerBadge } from '../components/SessionTimerBadge';
+import { StewardModal } from '../components/StewardModal';
 import { usePresence } from '../hooks/usePresence';
 import { useRealtimeTiming } from '../hooks/useRealtimeTiming';
 
@@ -88,6 +90,9 @@ export const RaceControlView: React.FC<Props> = ({
   const [strategyChangeType, setStrategyChangeType] = useState<'equipment' | 'personnel' | null>(null);
   const [strategyChangeTeamId, setStrategyChangeTeamId] = useState<string | null>(null);
   const [isStrategySubmitting, setIsStrategySubmitting] = useState<boolean>(false);
+
+  // Estado para Comisaría Deportiva / Sanciones Manuales (M7)
+  const [stewardTeamId, setStewardTeamId] = useState<string | null>(null);
 
   // Monitor de cronometraje en tiempo real (M4)
   // Preserva la sesión seleccionada explícitamente o prioriza la activa en curso (RUNNING)
@@ -423,6 +428,112 @@ export const RaceControlView: React.FC<Props> = ({
     }
   };
 
+  // Manejadores de Comisaría Deportiva y Sanciones Manuales (M7)
+  const handleIssueWarning = async (teamId: string, reason: string) => {
+    if (!activeSession) return;
+    const res = await fetch(`/api/sessions/${activeSession.id}/stewarding/warning`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teamId, reason, actor: 'Dirección de Carrera' })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error?.message || 'Error al emitir advertencia');
+    }
+    setActionFeedback(`Advertencia emitida a la escudería.`);
+    await refreshTiming();
+  };
+
+  const handleApplyTimePenalty = async (teamId: string, seconds: number, reason: string) => {
+    if (!activeSession) return;
+    const res = await fetch(`/api/sessions/${activeSession.id}/stewarding/time-penalty`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teamId, seconds, reason, actor: 'Dirección de Carrera' })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error?.message || 'Error al aplicar penalización');
+    }
+    setActionFeedback(`Penalización de +${seconds}s aplicada a la escudería.`);
+    await refreshTiming();
+  };
+
+  const handleCancelTimePenalty = async (penaltyId: string, reason: string) => {
+    if (!activeSession) return;
+    const res = await fetch(`/api/sessions/${activeSession.id}/stewarding/time-penalty/${penaltyId}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason, actor: 'Dirección de Carrera' })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error?.message || 'Error al revocar penalización');
+    }
+    setActionFeedback(`Penalización revocada correctamente.`);
+    await refreshTiming();
+  };
+
+  const handleIssuePitRequired = async (teamId: string, reason: string) => {
+    if (!activeSession) return;
+    const res = await fetch(`/api/sessions/${activeSession.id}/stewarding/pit-required`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teamId, reason, actor: 'Dirección de Carrera' })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error?.message || 'Error al emitir directiva PIT_REQUIRED');
+    }
+    setActionFeedback(`Directiva PIT_REQUIRED emitida a la escudería.`);
+    await refreshTiming();
+  };
+
+  const handleResolvePitRequired = async (directiveId: string, status: 'SERVED' | 'CANCELLED', reason?: string) => {
+    if (!activeSession) return;
+    const res = await fetch(`/api/sessions/${activeSession.id}/stewarding/pit-required/${directiveId}/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, reason, actor: 'Dirección de Carrera' })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error?.message || 'Error al resolver directiva');
+    }
+    setActionFeedback(`Directiva marcada como ${status === 'SERVED' ? 'CUMPLIDA' : 'CANCELADA'}.`);
+    await refreshTiming();
+  };
+
+  const handleDisqualify = async (teamId: string, reason: string) => {
+    if (!activeSession) return;
+    const res = await fetch(`/api/sessions/${activeSession.id}/stewarding/disqualify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teamId, reason, actor: 'Dirección de Carrera' })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error?.message || 'Error al descalificar escudería');
+    }
+    setActionFeedback(`Escudería descalificada de la manga.`);
+    await refreshTiming();
+  };
+
+  const handleReinstate = async (teamId: string, reason: string) => {
+    if (!activeSession) return;
+    const res = await fetch(`/api/sessions/${activeSession.id}/stewarding/reinstate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teamId, reason, actor: 'Dirección de Carrera' })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error?.message || 'Error al readmitir escudería');
+    }
+    setActionFeedback(`Descalificación revocada y escudería readmitida.`);
+    await refreshTiming();
+  };
+
   return (
     <div className="space-y-6 py-6">
       {/* Barra de Estado de Dirección de Carrera */}
@@ -437,7 +548,7 @@ export const RaceControlView: React.FC<Props> = ({
                 Dirección de Carrera / Race Control
               </h1>
               <span className="px-2 py-0.5 text-[11px] font-mono font-semibold bg-emerald-950/70 text-emerald-300 rounded border border-emerald-700/60">
-                M5 CORRECCIONES Y AUDITORÍA
+                M7 COMISARÍA Y SANCIONES
               </span>
             </div>
             <p className="text-xs text-gray-400 font-mono mt-0.5">
@@ -731,39 +842,52 @@ export const RaceControlView: React.FC<Props> = ({
                     <th className="py-2 px-2 text-center">Boxes</th>
                     <th className="py-2 px-2 text-center">Compuesto</th>
                     <th className="py-2 px-2 text-center">Piloto</th>
+                    <th className="py-2 px-2 text-center">Sanciones</th>
                     <th className="py-2 px-3 text-right">Última</th>
                     <th className="py-2 px-3 text-right">Mejor</th>
                     <th className="py-2 px-3 text-right">Diferencia</th>
-                    <th className="py-2 px-2 text-center w-36">Acciones</th>
+                    <th className="py-2 px-2 text-center w-40">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/60 font-tabular">
                   {timing.leaderboard.map((item) => {
                     const teamInfo = teams.find((t) => t.id === item.teamId);
                     const strat = timing.teamsStrategy?.[item.teamId] || item.strategy;
+                    const stew = timing.teamsStewarding?.[item.teamId] || item.stewarding;
                     const isInPit = strat?.pitState === 'IN_PIT';
+                    const isDq = item.isDisqualified || stew?.isDisqualified;
 
                     return (
                       <tr
                         key={item.teamId}
                         className={`hover:bg-gray-800/40 transition-colors ${
-                          item.position === 1 ? 'bg-amber-950/20' : ''
+                          isDq
+                            ? 'bg-rose-950/20'
+                            : item.position === 1
+                            ? 'bg-amber-950/20'
+                            : ''
                         }`}
                       >
                         <td className="py-2 px-2 text-center font-bold">
-                          <span
-                            className={`inline-block w-6 text-center py-0.5 rounded ${
-                              item.position === 1
-                                ? 'bg-amber-400 text-black font-black'
-                                : item.position === 2
-                                ? 'bg-gray-300 text-black font-black'
-                                : item.position === 3
-                                ? 'bg-amber-700 text-white font-black'
-                                : 'text-gray-400'
-                            }`}
-                          >
-                            {item.position}
-                          </span>
+                          {isDq ? (
+                            <span className="inline-block w-7 text-center py-0.5 rounded bg-rose-900 text-rose-200 font-black text-[10px]">
+                              DQ
+                            </span>
+                          ) : (
+                            <span
+                              className={`inline-block w-6 text-center py-0.5 rounded ${
+                                item.position === 1
+                                  ? 'bg-amber-400 text-black font-black'
+                                  : item.position === 2
+                                  ? 'bg-gray-300 text-black font-black'
+                                  : item.position === 3
+                                  ? 'bg-amber-700 text-white font-black'
+                                  : 'text-gray-400'
+                              }`}
+                            >
+                              {item.position}
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 px-3">
                           <div className="flex items-center space-x-2">
@@ -771,10 +895,15 @@ export const RaceControlView: React.FC<Props> = ({
                               className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                               style={{ backgroundColor: teamInfo?.color || '#3b82f6' }}
                             />
-                            <span className="font-bold text-gray-200">
+                            <span className={`font-bold ${isDq ? 'text-gray-400 line-through' : 'text-gray-200'}`}>
                               {teamInfo?.name || item.teamId}
                             </span>
-                            {item.isFastestLap && (
+                            {isDq && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800 font-bold uppercase">
+                                DQ
+                              </span>
+                            )}
+                            {item.isFastestLap && !isDq && (
                               <span className="text-[9px] px-1 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800">
                                 VR
                               </span>
@@ -821,6 +950,34 @@ export const RaceControlView: React.FC<Props> = ({
                               : `(${item.lapCount}v)`}
                           </span>
                         </td>
+                        {/* Sanciones y Comisaría (M7) */}
+                        <td className="py-2 px-2 text-center">
+                          <div className="flex flex-wrap items-center justify-center gap-1">
+                            {isDq && (
+                              <span className="px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 text-[9px] font-bold">
+                                DQ
+                              </span>
+                            )}
+                            {item.totalPenaltyMs !== undefined && item.totalPenaltyMs > 0 && !isDq && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 text-[9px] font-bold font-mono">
+                                +{(item.totalPenaltyMs / 1000).toFixed(0)}s
+                              </span>
+                            )}
+                            {stew?.activePitRequired && (
+                              <span className="px-1.5 py-0.5 rounded bg-orange-950 text-orange-300 border border-orange-800 text-[9px] font-bold animate-pulse">
+                                BOX REQ
+                              </span>
+                            )}
+                            {stew && stew.warnings.length > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-yellow-950 text-yellow-300 border border-yellow-800 text-[9px] font-bold">
+                                ⚠️{stew.warnings.length}
+                              </span>
+                            )}
+                            {!isDq && (!item.totalPenaltyMs || item.totalPenaltyMs === 0) && !stew?.activePitRequired && (!stew || stew.warnings.length === 0) && (
+                              <span className="text-gray-600 text-[9px]">--</span>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-2 px-3 text-right text-cyan-400">
                           {formatLapTime(item.lastLapMs)}
                         </td>
@@ -828,7 +985,9 @@ export const RaceControlView: React.FC<Props> = ({
                           {formatLapTime(item.bestLapMs)}
                         </td>
                         <td className="py-2 px-3 text-right text-gray-400">
-                          {item.gapMs !== undefined && item.gapMs > 0
+                          {isDq
+                            ? 'DQ'
+                            : item.gapMs !== undefined && item.gapMs > 0
                             ? `+${(item.gapMs / 1000).toFixed(3)}s`
                             : item.position === 1
                             ? 'LÍDER'
@@ -853,6 +1012,20 @@ export const RaceControlView: React.FC<Props> = ({
                             >
                               <Wrench className="w-2.5 h-2.5 text-cyan-400" />
                               <span>M6</span>
+                            </button>
+                            <button
+                              onClick={() => setStewardTeamId(item.teamId)}
+                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer flex items-center space-x-0.5 border ${
+                                isDq
+                                  ? 'bg-rose-950 text-rose-300 border-rose-700'
+                                  : (item.totalPenaltyMs && item.totalPenaltyMs > 0) || stew?.activePitRequired
+                                  ? 'bg-amber-950 text-amber-300 border-amber-700 animate-pulse'
+                                  : 'bg-[#1a2130] hover:bg-amber-950/60 border-amber-800/50 text-amber-300'
+                              }`}
+                              title={`Comisaría Deportiva y Sanciones de ${teamInfo?.name || item.teamId} (M7)`}
+                            >
+                              <Scale className="w-2.5 h-2.5 text-amber-400" />
+                              <span>M7</span>
                             </button>
                           </div>
                         </td>
@@ -1582,6 +1755,32 @@ export const RaceControlView: React.FC<Props> = ({
         onConfirm={executeDeleteEvent}
         onCancel={() => setEventToDelete(false)}
       />
+
+      {/* Modal de Comisaría Deportiva y Sanciones Manuales (M7) */}
+      {stewardTeamId && activeSession && (
+        <StewardModal
+          isOpen={!!stewardTeamId}
+          team={teams.find((t) => t.id === stewardTeamId) || {
+            id: stewardTeamId,
+            eventId: activeSession.eventId || '',
+            name: stewardTeamId,
+            color: '#3b82f6',
+            token: '',
+            createdAt: '',
+            updatedAt: ''
+          }}
+          session={activeSession}
+          stewarding={timing?.teamsStewarding?.[stewardTeamId]}
+          onClose={() => setStewardTeamId(null)}
+          onIssueWarning={handleIssueWarning}
+          onApplyTimePenalty={handleApplyTimePenalty}
+          onCancelTimePenalty={handleCancelTimePenalty}
+          onIssuePitRequired={handleIssuePitRequired}
+          onResolvePitRequired={handleResolvePitRequired}
+          onDisqualify={handleDisqualify}
+          onReinstate={handleReinstate}
+        />
+      )}
     </div>
   );
 };

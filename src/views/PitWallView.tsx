@@ -14,23 +14,36 @@ import {
   Disc,
   User,
   ArrowDownCircle,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Ban,
+  LogOut
 } from 'lucide-react';
 import { TeamModel, EventModel, SessionModel, LapRecordModel } from '../types';
 import { usePresence } from '../hooks/usePresence';
 import { useRealtimeTiming } from '../hooks/useRealtimeTiming';
 import { StrategyChangeModal } from '../components/StrategyChangeModal';
 import { SessionTimerBadge } from '../components/SessionTimerBadge';
+import { PitWallStewardNotice } from '../components/PitWallStewardNotice';
 
 interface Props {
   initialToken?: string;
   availableTeams?: TeamModel[];
   onNavigate?: (path: string) => void;
+  authenticatedTeam?: TeamModel | null;
+  onTeamAuthenticated?: (team: TeamModel | null) => void;
+  onLogout?: () => void;
 }
 
-export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = [], onNavigate }) => {
+export const PitWallView: React.FC<Props> = ({
+  initialToken,
+  availableTeams = [],
+  onNavigate,
+  authenticatedTeam = null,
+  onTeamAuthenticated,
+  onLogout
+}) => {
   const [tokenInput, setTokenInput] = useState<string>(initialToken || '');
-  const [team, setTeam] = useState<TeamModel | null>(null);
+  const [team, setTeam] = useState<TeamModel | null>(authenticatedTeam);
   const [event, setEvent] = useState<EventModel | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -99,7 +112,9 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
   }, [timing, team]);
 
   const teamStrategy = team ? timing?.teamsStrategy?.[team.id] : undefined;
+  const teamStewarding = team ? timing?.teamsStewarding?.[team.id] : undefined;
   const isInPit = teamStrategy?.pitState === 'IN_PIT';
+  const isDisqualified = !!teamStewarding?.isDisqualified;
 
   // Cronómetro en vivo de estancia en boxes (M6)
   useEffect(() => {
@@ -234,6 +249,7 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
 
       if (res.ok && data.ok) {
         setTeam(data.team);
+        onTeamAuthenticated?.(data.team);
         setEvent(data.event);
         const sessions: SessionModel[] = data.sessions || [];
 
@@ -246,13 +262,15 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
       } else {
         setAuthError(data.error?.message || 'Token no reconocido o revocado.');
         setTeam(null);
+        onTeamAuthenticated?.(null);
       }
     } catch {
       setAuthError('Error de comunicación con el servidor al verificar el token.');
+      onTeamAuthenticated?.(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onTeamAuthenticated]);
 
   // Sondeo reactivo de mangas: verificar periódicamente para mantener el estado de la manga sincronizado
   // tanto al iniciar como al cerrar cronometraje por Dirección de Carrera (sin requerir recarga)
@@ -303,6 +321,14 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
   // Manejador del botón autoritativo: REGISTRAR VUELTA (Criterio M3)
   const handleRegisterLap = async () => {
     if (!team || !activeSession || isSubmittingLap) return;
+
+    if (isDisqualified) {
+      setLapFeedback({
+        type: 'error',
+        message: 'Escudería descalificada de esta manga por Dirección de Carrera. Registro inhabilitado.'
+      });
+      return;
+    }
 
     if (effectiveSessionStatus === 'TIMING_CLOSED') {
       setLapFeedback({
@@ -366,12 +392,26 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     sessionStorage.removeItem('pw_team_token');
+    if (window.location.search) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
     setTeam(null);
     setTokenInput('');
     setAuthError(null);
-  };
+    onTeamAuthenticated?.(null);
+    onLogout?.();
+  }, [onTeamAuthenticated, onLogout]);
+
+  // Si desde el exterior (Header) se revocó/cerró sesión de la escudería
+  useEffect(() => {
+    if (authenticatedTeam === null && team !== null) {
+      setTeam(null);
+      setTokenInput('');
+      setAuthError(null);
+    }
+  }, [authenticatedTeam, team]);
 
   const formatLapTime = (ms?: number) => {
     if (!ms || ms <= 0) return '--:--.---';
@@ -582,10 +622,13 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
             <RefreshCw className="w-3 h-3" />
           </button>
           <button
+            id="btn-pitwall-logout"
             onClick={handleLogout}
-            className="text-gray-500 hover:text-rose-400 transition-colors cursor-pointer"
+            className="flex items-center space-x-1 px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900 border border-rose-800 text-rose-300 text-[11px] font-semibold transition-colors cursor-pointer"
+            title="Cerrar sesión de escudería y salir del modo Pit Wall"
           >
-            Cambiar Escudería
+            <LogOut className="w-3 h-3 text-rose-400" />
+            <span>Cerrar Sesión</span>
           </button>
         </div>
       </div>
@@ -606,6 +649,13 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
           </button>
         </div>
       )}
+
+      {/* Notificaciones y Directivas de Comisaría Deportiva (M7) */}
+      <PitWallStewardNotice
+        stewarding={teamStewarding}
+        onQuickPitIn={handlePitIn}
+        isPitOpen={isInPit}
+      />
 
       {/* Retroalimentación de intento de vuelta (Éxito, Anti-Doble Pulsación, etc.) */}
       {lapFeedback && (
@@ -642,16 +692,23 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
             <span className={`w-2 h-2 rounded-full ${timingLive ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
             <span className="text-gray-300 font-semibold">{timingLive ? 'TELEMETRÍA EN VIVO' : 'SINCRONIZANDO'}</span>
           </div>
-          {gapMs !== undefined && gapMs > 0 && (
-            <span className="text-amber-400">GAP: +{(gapMs / 1000).toFixed(3)}s</span>
-          )}
+          <div className="flex items-center space-x-2">
+            {teamStewarding && teamStewarding.totalPenaltyMs > 0 && !isDisqualified && (
+              <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 text-[10px] font-bold">
+                +{(teamStewarding.totalPenaltyMs / 1000).toFixed(0)}s PEN
+              </span>
+            )}
+            {gapMs !== undefined && gapMs > 0 && !isDisqualified && (
+              <span className="text-amber-400">GAP: +{(gapMs / 1000).toFixed(3)}s</span>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-4 gap-2 text-center font-mono">
           <div className="bg-[#0a0c10] border border-gray-800/80 rounded-lg p-2 flex flex-col justify-center">
             <div className="text-[9px] text-gray-500 uppercase">Posición</div>
-            <div className="text-xl sm:text-2xl font-black text-amber-400 font-tabular mt-0.5">
-              {position ? `P${position}` : '--'}
+            <div className={`text-xl sm:text-2xl font-black font-tabular mt-0.5 ${isDisqualified ? 'text-rose-400' : 'text-amber-400'}`}>
+              {isDisqualified ? 'DQ' : position ? `P${position}` : '--'}
             </div>
           </div>
           <div className="bg-[#0a0c10] border border-gray-800/80 rounded-lg p-2 flex flex-col justify-center">
@@ -691,15 +748,17 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
       )}
 
       {/* Botón Principal Gigante: REGISTRAR VUELTA (M3)
-          Deshabilitado estrictamente si está SIN CONEXIÓN o si la sesión no está en RUNNING */}
+          Deshabilitado estrictamente si está SIN CONEXIÓN, si la sesión no está en RUNNING o si está DESCALIFICADO (M7) */}
       <div className="space-y-2">
         <button
           id="btn-registrar-vuelta-mobile"
           onClick={handleRegisterLap}
-          disabled={!isOnline || !isSessionRunning || isSubmittingLap}
+          disabled={!isOnline || !isSessionRunning || isSubmittingLap || isDisqualified}
           className={`w-full py-8 px-4 rounded-2xl border-2 font-bold text-xl tracking-wider uppercase flex flex-col items-center justify-center space-y-1 shadow-xl select-none transition-all ${
-            isOnline && isSessionRunning
+            isOnline && isSessionRunning && !isDisqualified
               ? 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 border-emerald-400 text-white cursor-pointer'
+              : isDisqualified
+              ? 'bg-rose-950/80 border-rose-600 text-rose-300 cursor-not-allowed shadow-rose-950/40'
               : effectiveSessionStatus === 'TIMING_CLOSED'
               ? 'bg-[#151224] border-purple-700 text-purple-300/70 cursor-not-allowed'
               : 'bg-[#1a2130] border-gray-700 text-gray-500 cursor-not-allowed opacity-75'
@@ -708,6 +767,8 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
           <div className="flex items-center space-x-2">
             {isSubmittingLap ? (
               <RefreshCw className="w-6 h-6 animate-spin" />
+            ) : isDisqualified ? (
+              <Ban className="w-6 h-6 text-rose-400" />
             ) : effectiveSessionStatus === 'TIMING_CLOSED' ? (
               <Lock className="w-6 h-6 text-purple-400" />
             ) : (
@@ -716,6 +777,8 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
             <span>
               {isSubmittingLap
                 ? 'ENVIANDO A META...'
+                : isDisqualified
+                ? 'ESCUDERÍA DESCALIFICADA (DQ)'
                 : effectiveSessionStatus === 'TIMING_CLOSED'
                 ? 'CRONOMETRAJE CERRADO'
                 : 'REGISTRAR VUELTA'}
@@ -724,6 +787,8 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
           <span className="text-[11px] font-mono font-normal normal-case text-gray-300">
             {!isOnline
               ? 'Bloqueado: Sin conexión autoritativa con el servidor'
+              : isDisqualified
+              ? `Inhabilitado: ${teamStewarding?.disqualification?.reason || 'Decisión de Comisaría Deportiva'}`
               : effectiveSessionStatus === 'TIMING_CLOSED'
               ? 'Manga Finalizada: Cronometraje cerrado por Dirección de Carrera'
               : !isSessionRunning
@@ -976,9 +1041,53 @@ export const PitWallView: React.FC<Props> = ({ initialToken, availableTeams = []
           <AlertTriangle className="w-3.5 h-3.5 text-yellow-400" />
           <span>Avisos de Dirección de Carrera</span>
         </div>
-        <div className="bg-[#0a0c10] border border-gray-800/80 rounded p-3 text-gray-400 text-[11px]">
-          Sin directivas ni sanciones pendientes en este momento.
-        </div>
+        {(!teamStewarding ||
+          (!teamStewarding.isDisqualified &&
+            !teamStewarding.activePitRequired &&
+            teamStewarding.timePenalties.filter((p) => !p.cancelled).length === 0 &&
+            teamStewarding.warnings.length === 0)) ? (
+          <div className="bg-[#0a0c10] border border-gray-800/80 rounded p-3 text-gray-400 text-[11px]">
+            Sin directivas ni sanciones pendientes en este momento.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {teamStewarding.isDisqualified && (
+              <div className="p-2.5 rounded bg-rose-950/60 border border-rose-700 text-rose-200">
+                <span className="font-bold text-rose-300 uppercase">DESCALIFICACIÓN ACTIVA: </span>
+                <span>{teamStewarding.disqualification?.reason}</span>
+              </div>
+            )}
+            {teamStewarding.activePitRequired && (
+              <div className="p-2.5 rounded bg-orange-950/60 border border-orange-700 text-orange-200 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-orange-300 uppercase">PARADA EN BOXES OBLIGATORIA: </span>
+                  <span>{teamStewarding.activePitRequired.reason}</span>
+                </div>
+                {!isInPit && (
+                  <button
+                    onClick={handlePitIn}
+                    disabled={isStrategyActionLoading || !isOnline}
+                    className="px-2 py-1 bg-orange-500 hover:bg-orange-400 text-black text-[10px] font-bold rounded uppercase ml-2 flex-shrink-0"
+                  >
+                    Entrar a Pit
+                  </button>
+                )}
+              </div>
+            )}
+            {teamStewarding.timePenalties.filter((p) => !p.cancelled).map((p) => (
+              <div key={p.id} className="p-2 rounded bg-amber-950/40 border border-amber-800 text-amber-200">
+                <span className="font-bold text-amber-300 font-mono">+{p.seconds.toFixed(3)}s PEN: </span>
+                <span>{p.reason}</span>
+              </div>
+            ))}
+            {teamStewarding.warnings.map((w) => (
+              <div key={w.id} className="p-2 rounded bg-yellow-950/40 border border-yellow-800 text-yellow-200">
+                <span className="font-bold text-yellow-300 uppercase">ADVERTENCIA: </span>
+                <span>{w.reason}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       {/* Modales de Cambio de Compuesto y Personal (M6) */}
       <StrategyChangeModal

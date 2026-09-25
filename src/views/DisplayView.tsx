@@ -243,6 +243,9 @@ export const DisplayView: React.FC<Props> = ({
                     const isFastestOfSession = timing?.fastestLapTeamId === t.id && (stats?.bestLapMs || 0) > 0;
                     const delta = positionDeltas[t.id];
                     const strat = timing?.teamsStrategy?.[t.id] || stats?.strategy;
+                    const stew = timing?.teamsStewarding?.[t.id] || stats?.stewarding;
+                    const isDq = !!(stats?.isDisqualified || stew?.isDisqualified);
+                    const penaltyMs = stats?.totalPenaltyMs || stew?.totalPenaltyMs || 0;
                     const activePilot = strat?.currentPersonnel || (t.pilots && t.pilots.length > 0 ? t.pilots[0] : undefined);
                     const activeEq = strat?.currentEquipment;
 
@@ -250,7 +253,9 @@ export const DisplayView: React.FC<Props> = ({
                       <tr
                         key={t.id}
                         className={`transition-all duration-300 ${
-                          pos === 1
+                          isDq
+                            ? 'bg-rose-950/20 hover:bg-rose-950/30'
+                            : pos === 1
                             ? 'bg-amber-950/20 hover:bg-amber-950/30'
                             : 'hover:bg-gray-800/20'
                         } ${delta === 'up' ? 'bg-emerald-950/30 ring-1 ring-emerald-500/50' : delta === 'down' ? 'bg-rose-950/20' : ''}`}
@@ -258,25 +263,31 @@ export const DisplayView: React.FC<Props> = ({
                         {/* Posición con indicador de adelantamiento */}
                         <td className="py-3 px-3 sm:px-4 text-center font-black">
                           <div className="flex items-center justify-center space-x-1">
-                            <span
-                              className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-bold transition-all ${
-                                pos === 1
-                                  ? 'bg-amber-500 text-black shadow'
-                                  : pos === 2
-                                  ? 'bg-gray-300 text-black'
-                                  : pos === 3
-                                  ? 'bg-amber-700 text-white'
-                                  : 'bg-gray-800 text-gray-400'
-                              }`}
-                            >
-                              {pos}
-                            </span>
-                            {delta === 'up' && (
+                            {isDq ? (
+                              <span className="inline-flex items-center justify-center w-8 h-7 rounded-lg text-xs font-black bg-rose-900 text-rose-200">
+                                DQ
+                              </span>
+                            ) : (
+                              <span
+                                className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-bold transition-all ${
+                                  pos === 1
+                                    ? 'bg-amber-500 text-black shadow'
+                                    : pos === 2
+                                    ? 'bg-gray-300 text-black'
+                                    : pos === 3
+                                    ? 'bg-amber-700 text-white'
+                                    : 'bg-gray-800 text-gray-400'
+                                }`}
+                              >
+                                {pos}
+                              </span>
+                            )}
+                            {delta === 'up' && !isDq && (
                               <span title="Posición ganada" className="inline-flex items-center">
                                 <ArrowUp className="w-3.5 h-3.5 text-emerald-400 animate-bounce" />
                               </span>
                             )}
-                            {delta === 'down' && (
+                            {delta === 'down' && !isDq && (
                               <span title="Posición perdida" className="inline-flex items-center">
                                 <ArrowDown className="w-3.5 h-3.5 text-rose-400" />
                               </span>
@@ -293,7 +304,7 @@ export const DisplayView: React.FC<Props> = ({
                             />
                             <div className="truncate">
                               <div className="flex items-center space-x-2">
-                                <span className="font-bold text-white tracking-wide text-sm sm:text-base">
+                                <span className={`font-bold tracking-wide text-sm sm:text-base ${isDq ? 'text-gray-400 line-through' : 'text-white'}`}>
                                   {t.name}
                                 </span>
                                 {t.number !== undefined && (
@@ -304,6 +315,16 @@ export const DisplayView: React.FC<Props> = ({
                                 {t.kartName && (
                                   <span className="text-[10px] font-mono text-gray-500">
                                     [{t.kartName}]
+                                  </span>
+                                )}
+                                {isDq && (
+                                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 bg-rose-950 text-rose-300 border border-rose-800 rounded uppercase">
+                                    DESCALIFICADO
+                                  </span>
+                                )}
+                                {penaltyMs > 0 && !isDq && (
+                                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 bg-amber-950 text-amber-300 border border-amber-800 rounded">
+                                    +{(penaltyMs / 1000).toFixed(0)}s PEN
                                   </span>
                                 )}
                               </div>
@@ -361,7 +382,9 @@ export const DisplayView: React.FC<Props> = ({
 
                         {/* Diferencia / Gap */}
                         <td className="py-3 px-3 sm:px-4 text-right text-gray-400 font-tabular hidden sm:table-cell">
-                          {pos === 1 ? (
+                          {isDq ? (
+                            <span className="text-rose-400 font-bold">DQ</span>
+                          ) : pos === 1 ? (
                             <span className="text-emerald-400 font-bold">LÍDER</span>
                           ) : stats?.lapsBehind && stats.lapsBehind > 0 ? (
                             <span className="text-amber-400 font-semibold">

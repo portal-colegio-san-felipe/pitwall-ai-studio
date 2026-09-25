@@ -96,7 +96,28 @@ El sistema opera bajo un modelo de **servidor autoritativo central** con cinco s
 
 ---
 
-## 5. Protocolo de Recuperación ante Fallos Técnicos
+## 5. Comisaría Deportiva y Sanciones Manuales (M7)
+
+Los Comisarios Deportivos y la Dirección de Carrera disponen de un panel de sanciones manuales independientes sin acoplamiento a reglamentos específicos:
+
+1. **Advertencias Deportivas**:
+   - Se emiten mediante el botón `M7` en la fila de la escudería.
+   - Comunican notas de conducción (ej. límites de pista, banderas amarillas) que se proyectan inmediatamente en el Pit Wall de la escudería sin aplicar sanción temporal numérica.
+2. **Penalizaciones de Tiempo**:
+   - Añaden segundos a la clasificación ajustada (ej. `+3.000s`, `+5.000s`).
+   - **Preservación del Cronometraje Bruto**: Los tiempos brutos de vuelta, mejor vuelta y vueltas completadas se conservan inalterados y visibles de forma separada.
+   - Las penalizaciones pueden revocarse en cualquier momento con motivo auditado por Comisaría.
+3. **Directiva de Parada Obligatoria (PIT_REQUIRED)**:
+   - Ordena a la escudería entrar obligatoriamente a boxes.
+   - Ciclo de vida: `PENDING` -> `SERVED` (Cumplida) o `CANCELLED` (Cancelada).
+   - Se cumple automáticamente cuando la escudería registra su entrada a boxes (`PIT_IN`).
+4. **Descalificación y Readmisión (DQ / REINSTATE)**:
+   - Descalifica a la escudería con motivo formal, retirándola a la última posición con estado `DQ` e inhabilitando temporalmente el registro de vueltas desde el Pit Wall.
+   - Puede revertirse deliberadamente mediante readmisión auditada (`REINSTATE`), restaurando su elegibilidad competitiva.
+
+---
+
+## 6. Protocolo de Recuperación ante Fallos Técnicos
 
 - **Cierre accidental del navegador**: Al volver a abrir la pestaña, el servidor restaura automáticamente la sesión sin pérdida de vueltas ni tiempos registrados.
 - **Cambio o rotación de dispositivo**: El nuevo teléfono o tableta solo necesita abrir el enlace original de la escudería para quedar inmediatamente sincronizado con el cronometraje oficial.

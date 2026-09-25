@@ -23,6 +23,9 @@ export const App: React.FC = () => {
   const [teams, setTeams] = useState<TeamModel[]>([]);
   const [sessions, setSessions] = useState<SessionModel[]>([]);
 
+  // Estado de escudería autenticada en Pit Wall (bloquea la navegación externa para estudiantes)
+  const [authenticatedTeam, setAuthenticatedTeam] = useState<TeamModel | null>(null);
+
   // Comprobar la salud del servidor autoritativo
   const fetchHealth = useCallback(async () => {
     try {
@@ -65,11 +68,17 @@ export const App: React.FC = () => {
   // Escuchar eventos de navegación del navegador (popstate)
   useEffect(() => {
     const handlePopState = () => {
-      setCurrentPath(window.location.pathname || '/');
+      const target = window.location.pathname || '/';
+      if (authenticatedTeam && target !== '/pit-wall') {
+        window.history.replaceState({}, '', '/pit-wall');
+        setCurrentPath('/pit-wall');
+        return;
+      }
+      setCurrentPath(target);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [authenticatedTeam]);
 
   // Escuchar cambios de fullscreen del navegador
   useEffect(() => {
@@ -104,15 +113,42 @@ export const App: React.FC = () => {
     };
   }, [refreshAllData]);
 
-  const handleNavigate = (path: string) => {
+  const handleLogoutTeam = useCallback(() => {
+    sessionStorage.removeItem('pw_team_token');
+    if (window.location.search) {
+      window.history.replaceState({}, '', '/pit-wall');
+    }
+    setAuthenticatedTeam(null);
+    window.history.pushState({}, '', '/pit-wall');
+    setCurrentPath('/pit-wall');
+  }, []);
+
+  const handleNavigate = useCallback((path: string) => {
+    // Si el usuario es de tipo escudería (Pit Wall autenticado), bloquear acceso a otras superficies
+    if (authenticatedTeam && path !== '/pit-wall') {
+      return;
+    }
     window.history.pushState({}, '', path);
     // Preservar path puro para switch pero soportar query params
     const cleanPath = path.split('?')[0];
     setCurrentPath(cleanPath);
-  };
+  }, [authenticatedTeam]);
 
   const renderCurrentView = () => {
     const purePath = currentPath.split('?')[0];
+
+    // Protección estricta: usuarios autenticados en Pit Wall no pueden acceder a otras superficies
+    if (authenticatedTeam && purePath !== '/pit-wall') {
+      return (
+        <PitWallView
+          availableTeams={teams}
+          onNavigate={handleNavigate}
+          authenticatedTeam={authenticatedTeam}
+          onTeamAuthenticated={setAuthenticatedTeam}
+          onLogout={handleLogoutTeam}
+        />
+      );
+    }
 
     switch (purePath) {
       case '/race-control':
@@ -131,6 +167,9 @@ export const App: React.FC = () => {
           <PitWallView
             availableTeams={teams}
             onNavigate={handleNavigate}
+            authenticatedTeam={authenticatedTeam}
+            onTeamAuthenticated={setAuthenticatedTeam}
+            onLogout={handleLogoutTeam}
           />
         );
       case '/display':
@@ -180,6 +219,8 @@ export const App: React.FC = () => {
         health={health}
         onRetryConnection={refreshAllData}
         isHidden={isFullscreen}
+        authenticatedTeam={authenticatedTeam}
+        onLogoutTeam={handleLogoutTeam}
       />
 
       <main className={`flex-1 w-full mx-auto ${isFullscreen ? 'p-0 max-w-none' : 'max-w-7xl px-4 sm:px-6 lg:px-8'}`}>

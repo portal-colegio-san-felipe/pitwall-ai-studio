@@ -7,7 +7,10 @@ import {
   TeamData,
   SessionData,
   RaceEventData,
-  LapRecord
+  LapRecord,
+  PenaltyData,
+  DirectiveData,
+  TeamSessionStateData
 } from './types.js';
 
 interface DatabaseSchema {
@@ -17,6 +20,9 @@ interface DatabaseSchema {
   sessions: SessionData[];
   laps: LapRecord[];
   raceEvents: RaceEventData[];
+  penalties: PenaltyData[];
+  directives: DirectiveData[];
+  teamSessionStates: TeamSessionStateData[];
   updatedAt: string;
 }
 
@@ -31,6 +37,9 @@ export class FileDurableStore implements PersistenceStore {
     sessions: [],
     laps: [],
     raceEvents: [],
+    penalties: [],
+    directives: [],
+    teamSessionStates: [],
     updatedAt: new Date().toISOString()
   };
 
@@ -54,6 +63,9 @@ export class FileDurableStore implements PersistenceStore {
           sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
           laps: Array.isArray(parsed.laps) ? parsed.laps : [],
           raceEvents: Array.isArray(parsed.raceEvents) ? parsed.raceEvents : [],
+          penalties: Array.isArray(parsed.penalties) ? parsed.penalties : [],
+          directives: Array.isArray(parsed.directives) ? parsed.directives : [],
+          teamSessionStates: Array.isArray(parsed.teamSessionStates) ? parsed.teamSessionStates : [],
           updatedAt: parsed.updatedAt || new Date().toISOString()
         };
       }
@@ -68,6 +80,9 @@ export class FileDurableStore implements PersistenceStore {
           sessions: [],
           laps: [],
           raceEvents: [],
+          penalties: [],
+          directives: [],
+          teamSessionStates: [],
           updatedAt: new Date().toISOString()
         };
         await this.persist();
@@ -258,6 +273,54 @@ export class FileDurableStore implements PersistenceStore {
     await this.persist();
   }
 
+  async getPenalties(sessionId: string): Promise<PenaltyData[]> {
+    await this.init();
+    return this.data.penalties.filter(p => p.sessionId === sessionId);
+  }
+
+  async savePenalty(penalty: PenaltyData): Promise<void> {
+    await this.init();
+    const idx = this.data.penalties.findIndex(p => p.id === penalty.id);
+    if (idx >= 0) {
+      this.data.penalties[idx] = penalty;
+    } else {
+      this.data.penalties.push(penalty);
+    }
+    await this.persist();
+  }
+
+  async getDirectives(sessionId: string): Promise<DirectiveData[]> {
+    await this.init();
+    return this.data.directives.filter(d => d.sessionId === sessionId);
+  }
+
+  async saveDirective(directive: DirectiveData): Promise<void> {
+    await this.init();
+    const idx = this.data.directives.findIndex(d => d.id === directive.id);
+    if (idx >= 0) {
+      this.data.directives[idx] = directive;
+    } else {
+      this.data.directives.push(directive);
+    }
+    await this.persist();
+  }
+
+  async getTeamSessionStates(sessionId: string): Promise<TeamSessionStateData[]> {
+    await this.init();
+    return this.data.teamSessionStates.filter(s => s.sessionId === sessionId);
+  }
+
+  async saveTeamSessionState(state: TeamSessionStateData): Promise<void> {
+    await this.init();
+    const idx = this.data.teamSessionStates.findIndex(s => s.id === state.id || (s.sessionId === state.sessionId && s.teamId === state.teamId));
+    if (idx >= 0) {
+      this.data.teamSessionStates[idx] = state;
+    } else {
+      this.data.teamSessionStates.push(state);
+    }
+    await this.persist();
+  }
+
   async clearAll(confirmKey: string): Promise<void> {
     if (confirmKey !== 'RESET_PITWALL_CONFIRM') {
       throw new Error('Clave de confirmación incorrecta para reinicio');
@@ -270,6 +333,9 @@ export class FileDurableStore implements PersistenceStore {
       sessions: [],
       laps: [],
       raceEvents: [],
+      penalties: [],
+      directives: [],
+      teamSessionStates: [],
       updatedAt: new Date().toISOString()
     };
     await this.persist();

@@ -4,6 +4,7 @@ import { getPersistenceStore } from '../storage/index.js';
 import { LapRecord } from '../storage/types.js';
 import { realtimeBus } from '../realtime.js';
 import { computeAllTeamsStrategy } from '../strategy.js';
+import { computeAllTeamsStewarding, computeTeamStewarding } from '../stewarding.js';
 
 export const timingRouter = Router();
 
@@ -33,6 +34,13 @@ export async function computeTimingOverview(sessionId: string) {
     raceEvents
   );
 
+  // Calcular estado de comisaría deportiva para todos los equipos (M7)
+  const allTeamsStewarding = computeAllTeamsStewarding(
+    session.participatingTeamIds,
+    raceEvents,
+    validLaps
+  );
+
   let fastestLapMs: number | undefined = undefined;
   let fastestLapTeamId: string | undefined = undefined;
 
@@ -41,8 +49,11 @@ export async function computeTimingOverview(sessionId: string) {
     const lapCount = teamLaps.length;
     const lastLap = lapCount > 0 ? teamLaps[lapCount - 1] : undefined;
     const bestLap = lapCount > 0 ? Math.min(...teamLaps.map((l) => l.lapTimeMs)) : undefined;
+    const stewState = allTeamsStewarding[tId];
+    const isDisqualified = !!stewState?.isDisqualified;
+    const totalPenaltyMs = stewState?.totalPenaltyMs || 0;
 
-    if (bestLap !== undefined) {
+    if (bestLap !== undefined && !isDisqualified) {
       if (fastestLapMs === undefined || bestLap < fastestLapMs) {
         fastestLapMs = bestLap;
         fastestLapTeamId = tId;
@@ -54,12 +65,19 @@ export async function computeTimingOverview(sessionId: string) {
       lapCount,
       lastLapMs: lastLap?.lapTimeMs,
       bestLapMs: bestLap,
-      lastTimestampMs: lastLap?.serverTimestamp || 0
+      lastTimestampMs: lastLap?.serverTimestamp || 0,
+      isDisqualified,
+      totalPenaltyMs,
+      stewardState: stewState
     };
   });
 
   if (session.type === 'qualifying') {
     teamEntries.sort((a, b) => {
+      // Escuderías descalificadas se ordenan al final
+      if (a.isDisqualified !== b.isDisqualified) {
+        return a.isDisqualified ? 1 : -1;
+      }
       if (!a.bestLapMs && !b.bestLapMs) return 0;
       if (!a.bestLapMs) return 1;
       if (!b.bestLapMs) return -1;
@@ -67,6 +85,10 @@ export async function computeTimingOverview(sessionId: string) {
     });
   } else {
     teamEntries.sort((a, b) => {
+      // Escuderías descalificadas se ordenan al final
+      if (a.isDisqualified !== b.isDisqualified) {
+        return a.isDisqualified ? 1 : -1;
+      }
       if (b.lapCount !== a.lapCount) {
         return b.lapCount - a.lapCount;
       }
@@ -75,7 +97,7 @@ export async function computeTimingOverview(sessionId: string) {
     });
   }
 
-  const leaderEntry = teamEntries[0];
+  const leaderEntry = teamEntries.find((e) => !e.isDisqualified) || teamEntries[0];
   const leaderLapCount = leaderEntry?.lapCount || 0;
   const leaderBestLap = leaderEntry?.bestLapMs;
   const leaderTimestamp = leaderEntry?.lastTimestampMs;
@@ -85,7 +107,7 @@ export async function computeTimingOverview(sessionId: string) {
     const lapsBehind = leaderLapCount > entry.lapCount ? leaderLapCount - entry.lapCount : 0;
     let gapMs: number | undefined = undefined;
 
-    if (position > 1) {
+    if (position > 1 && !entry.isDisqualified) {
       if (session.type === 'qualifying') {
         if (leaderBestLap !== undefined && entry.bestLapMs !== undefined && entry.bestLapMs > leaderBestLap) {
           gapMs = entry.bestLapMs - leaderBestLap;
@@ -99,6 +121,7 @@ export async function computeTimingOverview(sessionId: string) {
     }
 
     const strat = allTeamsStrategy[entry.teamId];
+    const stew = allTeamsStewarding[entry.teamId];
 
     return {
       position,
@@ -110,6 +133,9 @@ export async function computeTimingOverview(sessionId: string) {
       gapMs: gapMs && gapMs > 0 ? gapMs : undefined,
       lapsBehind: lapsBehind > 0 ? lapsBehind : undefined,
       isFastestLap: fastestLapTeamId === entry.teamId && (entry.bestLapMs || 0) > 0,
+      isDisqualified: entry.isDisqualified,
+      totalPenaltyMs: entry.totalPenaltyMs,
+      stewarding: stew,
       // Medición neutral de estrategia proyectada (M6)
       strategy: strat
         ? {
@@ -137,6 +163,7 @@ export async function computeTimingOverview(sessionId: string) {
     totalLapsRecorded: validLaps.length,
     leaderboard,
     teamsStrategy: allTeamsStrategy,
+    teamsStewarding: allTeamsStewarding,
     revision: realtimeBus.getRevision(),
     lastUpdated: new Date().toISOString()
   };
@@ -392,6 +419,19 @@ timingRouter.post('/sessions/:sessionId/laps', async (req: Request, res: Respons
           error: { code: 'FORBIDDEN_TEAM_ACTION', message: 'El token no corresponde a la escudería indicada' }
         });
       }
+    }
+
+    // Verificar si la escudería está descalificada de esta manga (M7)
+    const allRaceEvents = await store.getRaceEvents(sessionId);
+    const teamStewarding = computeTeamStewarding(teamId, allRaceEvents);
+    if (teamStewarding.isDisqualified) {
+      return res.status(403).json({
+        ok: false,
+        error: {
+          code: 'TEAM_DISQUALIFIED',
+          message: `La escudería se encuentra descalificada de esta manga: ${teamStewarding.disqualification?.reason || 'Decisión de Comisaría Deportiva'}`
+        }
+      });
     }
 
     const serverNow = Date.now();

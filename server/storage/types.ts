@@ -75,6 +75,53 @@ export interface RaceEventData {
   invalidationReason?: string;
 }
 
+export type PenaltyType = 'WARNING' | 'TIME_PENALTY';
+
+export interface PenaltyData {
+  id: string;
+  sessionId: string;
+  teamId: string;
+  type: PenaltyType;
+  seconds?: number;
+  reason: string;
+  issuedAt: number;
+  issuedBy: string;
+}
+
+export type DirectiveType = 'PIT_REQUIRED' | 'GENERAL_DIRECTIVE';
+export type DirectiveStatus = 'PENDING' | 'SERVED' | 'CANCELLED';
+
+export interface DirectiveData {
+  id: string;
+  sessionId: string;
+  teamId: string;
+  type: DirectiveType;
+  description: string;
+  status: DirectiveStatus;
+  issuedAt: number;
+  issuedBy: string;
+  updatedAt: number;
+  resolvedAt?: number;
+  resolutionReason?: string;
+  resolvedBy?: string;
+}
+
+export type TeamSessionCompetitiveStatus = 'ACTIVE' | 'DISQUALIFIED' | 'RETIRED' | 'FINISHED';
+
+export interface TeamSessionStateData {
+  id: string;
+  sessionId: string;
+  teamId: string;
+  status: TeamSessionCompetitiveStatus;
+  disqualificationReason?: string;
+  disqualifiedAt?: number;
+  disqualifiedBy?: string;
+  reversalReason?: string;
+  reversedAt?: number;
+  reversedBy?: string;
+  updatedAt: number;
+}
+
 export interface PersistenceStore {
   readonly type: string;
   init(): Promise<void>;
@@ -94,5 +141,11 @@ export interface PersistenceStore {
   updateLap(lap: LapRecord): Promise<void>;
   getRaceEvents(sessionId: string): Promise<RaceEventData[]>;
   appendRaceEvent(event: RaceEventData): Promise<void>;
+  getPenalties(sessionId: string): Promise<PenaltyData[]>;
+  savePenalty(penalty: PenaltyData): Promise<void>;
+  getDirectives(sessionId: string): Promise<DirectiveData[]>;
+  saveDirective(directive: DirectiveData): Promise<void>;
+  getTeamSessionStates(sessionId: string): Promise<TeamSessionStateData[]>;
+  saveTeamSessionState(state: TeamSessionStateData): Promise<void>;
   clearAll(confirmKey: string): Promise<void>;
 }

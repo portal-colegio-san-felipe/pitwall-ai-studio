@@ -121,6 +121,63 @@ export interface TeamStrategyState extends TeamStrategySummary {
   personnelHistory: PersonnelChangeRecord[];
 }
 
+export type DirectiveStatus = 'PENDING' | 'SERVED' | 'CANCELLED';
+
+export interface WarningRecord {
+  id: string;
+  reason: string;
+  serverTimestamp: number;
+  actor: string;
+}
+
+export interface TimePenaltyRecord {
+  id: string;
+  seconds: number;
+  penaltyMs: number;
+  reason: string;
+  serverTimestamp: number;
+  actor: string;
+  cancelled?: boolean;
+  cancelReason?: string;
+  cancelledBy?: string;
+  cancelledAt?: number;
+}
+
+export interface PitRequiredRecord {
+  id: string;
+  reason: string;
+  serverTimestamp: number;
+  actor: string;
+  status: DirectiveStatus;
+  servedAt?: number;
+  servedBy?: string;
+  cancelledAt?: number;
+  cancelReason?: string;
+  cancelledBy?: string;
+}
+
+export interface DisqualificationRecord {
+  id: string;
+  reason: string;
+  serverTimestamp: number;
+  actor: string;
+  reinstated?: boolean;
+  reinstateReason?: string;
+  reinstatedBy?: string;
+  reinstatedAt?: number;
+}
+
+export interface TeamStewardingState {
+  teamId: string;
+  warnings: WarningRecord[];
+  timePenalties: TimePenaltyRecord[];
+  totalPenaltyMs: number;
+  pitRequiredDirectives: PitRequiredRecord[];
+  activePitRequired?: PitRequiredRecord;
+  disqualification?: DisqualificationRecord;
+  isDisqualified: boolean;
+}
+
 export interface LeaderboardEntry {
   position: number;
   teamId: string;
@@ -132,6 +189,9 @@ export interface LeaderboardEntry {
   lapsBehind?: number;
   isFastestLap?: boolean;
   strategy?: TeamStrategySummary;
+  isDisqualified?: boolean;
+  totalPenaltyMs?: number;
+  stewarding?: TeamStewardingState;
 }
 
 export interface TimingOverview {
@@ -144,6 +204,7 @@ export interface TimingOverview {
   totalLapsRecorded: number;
   leaderboard: LeaderboardEntry[];
   teamsStrategy?: Record<string, TeamStrategyState>;
+  teamsStewarding?: Record<string, TeamStewardingState>;
   revision: number;
   lastUpdated: string;
 }

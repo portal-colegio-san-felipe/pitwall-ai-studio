@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlertTriangle, Clock, ArrowDownCircle, Ban } from 'lucide-react';
-import { TeamStewardingState } from '../types';
+import { TeamStewardingState, TimePenaltyRecord } from '../types';
 
 interface PitWallStewardNoticeProps {
   stewarding?: TeamStewardingState;
@@ -17,7 +17,7 @@ export const PitWallStewardNotice: React.FC<PitWallStewardNoticeProps> = ({
 
   const { isDisqualified, disqualification, activePitRequired, timePenalties, warnings } = stewarding;
 
-  const activePenalties = timePenalties.filter((p) => !p.cancelled);
+  const activePenalties = timePenalties.filter((p: TimePenaltyRecord) => !p.cancelled);
   const totalPenaltySec = (stewarding.totalPenaltyMs / 1000).toFixed(3);
   const latestWarning = warnings[warnings.length - 1];
 
@@ -88,7 +88,7 @@ export const PitWallStewardNotice: React.FC<PitWallStewardNoticeProps> = ({
               </span>
             </div>
             <p className="text-gray-200 mt-0.5 text-[11px]">
-              {activePenalties.map((p) => p.reason).join(' | ')}
+              {activePenalties.map((p: TimePenaltyRecord) => p.reason).join(' | ')}
             </p>
           </div>
         </div>

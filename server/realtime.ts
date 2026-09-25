@@ -29,6 +29,10 @@ class RealtimeEventBus extends EventEmitter {
     return this.currentRevision;
   }
 
+  public incrementRevision(): number {
+    return this.nextRevision();
+  }
+
   public registerClient(res: Response, sessionId?: string) {
     const client = { res, sessionId };
     this.sseClients.add(client);
